@@ -1,1 +1,54 @@
 # put here your custom config value
+
+menu "Status LED"
+
+config STATUS_LED_RED_GPIO
+    int "Red LED GPIO (-1 to disable)"
+    range -1 48
+    default 21 if IDF_TARGET_ESP32
+    default -1 if IDF_TARGET_ESP32C3
+    help
+      GPIO number for the Red channel. Use -1 to disable this color.
+
+config STATUS_LED_GREEN_GPIO
+    int "Green LED GPIO (-1 to disable)"
+    range -1 48
+    default 22 if IDF_TARGET_ESP32
+    default -1 if IDF_TARGET_ESP32C3
+    help
+      GPIO number for the Green channel. Use -1 to disable this color.
+
+config STATUS_LED_BLUE_GPIO
+    int "Blue LED GPIO (-1 to disable)"
+    range -1 48
+    default 23 if IDF_TARGET_ESP32
+    default -1 if IDF_TARGET_ESP32C3
+    help
+      GPIO number for the Blue channel. Use -1 to disable this color.
+
+
+config STATUS_LED_RSSI_GPIO
+    int "RSSI LED GPIO (-1 to disable)"
+    range -1 48
+    default 18 if IDF_TARGET_ESP32
+    default -1 if IDF_TARGET_ESP32C3
+    help
+      GPIO number for the RSSI indicator LED. Use -1 to disable.
+
+config STATUS_LED_SLEEP_GPIO
+    int "Sleep LED GPIO (-1 to disable)"
+    range -1 48
+    default 27 if IDF_TARGET_ESP32
+    default -1 if IDF_TARGET_ESP32C3
+    help
+      GPIO number for the Sleep indicator LED. Use -1 to disable.
+
+config STATUS_LED_ASSOC_GPIO
+    int "Association LED GPIO (-1 to disable)"
+    range -1 48
+    default 25 if IDF_TARGET_ESP32
+    default -1 if IDF_TARGET_ESP32C3
+    help
+      GPIO number for the Association status LED. Use -1 to disable.
+
+endmenu

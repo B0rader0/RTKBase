@@ -30,18 +30,18 @@
 
 #define LEDC_SPEED_MODE LEDC_HIGH_SPEED_MODE
 
+#define STATUS_LED_RED_GPIO CONFIG_STATUS_LED_RED_GPIO
+// #define STATUS_LED_RED_GPIO GPIO_NUM_21 // (GN)
+#define STATUS_LED_GREEN_GPIO CONFIG_STATUS_LED_GREEN_GPIO
+#define STATUS_LED_BLUE_GPIO CONFIG_STATUS_LED_BLUE_GPIO
 
-// #define STATUS_LED_RED_GPIO GPIO_NUM_21
-#define STATUS_LED_RED_GPIO GPIO_NUM_26
-#define STATUS_LED_GREEN_GPIO GPIO_NUM_22
-#define STATUS_LED_BLUE_GPIO GPIO_NUM_23
 #define STATUS_LED_RED_CHANNEL LEDC_CHANNEL_0
 #define STATUS_LED_GREEN_CHANNEL LEDC_CHANNEL_1
 #define STATUS_LED_BLUE_CHANNEL LEDC_CHANNEL_2
 
-#define STATUS_LED_RSSI_GPIO GPIO_NUM_18
-#define STATUS_LED_SLEEP_GPIO GPIO_NUM_27
-#define STATUS_LED_ASSOC_GPIO GPIO_NUM_25
+#define STATUS_LED_RSSI_GPIO CONFIG_STATUS_LED_RSSI_GPIO
+#define STATUS_LED_SLEEP_GPIO CONFIG_STATUS_LED_SLEEP_GPIO
+#define STATUS_LED_ASSOC_GPIO CONFIG_STATUS_LED_ASSOC_GPIO
 #define STATUS_LED_RSSI_CHANNEL LEDC_CHANNEL_3
 #define STATUS_LED_SLEEP_CHANNEL LEDC_CHANNEL_4
 #define STATUS_LED_ASSOC_CHANNEL LEDC_CHANNEL_5
@@ -52,9 +52,9 @@ static SLIST_HEAD(status_led_color_list_t, status_led_color_t) status_led_colors
 
 static TaskHandle_t led_task;
 
-void status_led_clear() {
-
-}
+// void status_led_clear()
+// {
+// } // not needed (GN)
 
 status_led_handle_t status_led_add(uint32_t rgba, status_led_flashing_mode_t flashing_mode, uint32_t interval, uint32_t duration, uint8_t expire) {
     uint8_t red = (rgba >> 24u) & 0xFFu;
