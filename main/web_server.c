@@ -597,6 +597,7 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
                     }
 ;
                     uint32_t ip = esp_netif_htonl(esp_netif_ip4_makeu32(a[0], a[1], a[2], a[3]));
+                    // uint32_t ip = esp_netif_ip4_makeu32(a[0], a[1], a[2], a[3]); // IP Reverse Fix (GN)
                     err = config_set_u32(item.key, ip);
                 }
             } else {
