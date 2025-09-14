@@ -211,27 +211,33 @@ const config_item_t CONFIG_ITEMS[] = {
         {
                 .key = KEY_CONFIG_UART_NUM,
                 .type = CONFIG_ITEM_TYPE_UINT8,
-                .def.uint8 = UART_NUM_0
+                .def.uint8 = CONFIG_UART_PORT // (GN)
+                // .def.uint8 = UART_NUM_0
         }, {
                 .key = KEY_CONFIG_UART_TX_PIN,
                 .type = CONFIG_ITEM_TYPE_UINT8,
-                .def.uint8 = GPIO_NUM_1
+                .def.uint8 = CONFIG_UART_TX_GPIO // (GN)
+                // .def.uint8 = GPIO_NUM_1
         }, {
                 .key = KEY_CONFIG_UART_RX_PIN,
                 .type = CONFIG_ITEM_TYPE_UINT8,
-                .def.uint8 = GPIO_NUM_3
+                .def.uint8 = CONFIG_UART_RX_GPIO // (GN)
+                // .def.uint8 = GPIO_NUM_3
         }, {
                 .key = KEY_CONFIG_UART_RTS_PIN,
                 .type = CONFIG_ITEM_TYPE_UINT8,
-                .def.uint8 = GPIO_NUM_14
+                .def.uint8 = CONFIG_UART_RTS_GPIO // (GN)
+                // .def.uint8 = GPIO_NUM_14
         }, {
                 .key = KEY_CONFIG_UART_CTS_PIN,
                 .type = CONFIG_ITEM_TYPE_UINT8,
-                .def.uint8 = GPIO_NUM_33
+                .def.uint8 = CONFIG_UART_CTS_GPIO // (GN)
+                // .def.uint8 = GPIO_NUM_33
         }, {
                 .key = KEY_CONFIG_UART_BAUD_RATE,
                 .type = CONFIG_ITEM_TYPE_UINT32,
-                .def.uint32 = 115200
+                .def.uint32 = CONFIG_UART_BAUD_RATE // (GN)
+                // .def.uint32 = 115200
         }, {
                 .key = KEY_CONFIG_UART_DATA_BITS,
                 .type = CONFIG_ITEM_TYPE_INT8,

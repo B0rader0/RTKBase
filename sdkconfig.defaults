@@ -1,56 +1,20 @@
-# This file was generated using idf.py save-defconfig. It can be edited manually.   # Provenance note; safe to edit by hand.
-# Espressif IoT Development Framework (ESP-IDF) 5.5.0 Project Minimal Configuration # Banner comment.
+# This file was generated using idf.py save-defconfig. It can be edited manually.   
+# Espressif IoT Development Framework (ESP-IDF) 5.5.0 Project Minimal Configuration
 
-# CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y          # Bootloader prints no logs (quiet boot).
-# CONFIG_APP_RETRIEVE_LEN_ELF_SHA=16          # Embed/print 16-char short ELF SHA for diagnostics.
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y            # Target flash size is 4 MB.
-CONFIG_PARTITION_TABLE_CUSTOM=y              # Use a custom partitions CSV (not default).
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y              
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-# CONFIG_TWAI_ERRATA_FIX_BUS_OFF_REC=n         # Disable TWAI(CAN) bus-off recovery workaround.
-# CONFIG_TWAI_ERRATA_FIX_TX_INTR_LOST=n        # Disable TWAI lost-TX-interrupt workaround.
-# CONFIG_TWAI_ERRATA_FIX_RX_FRAME_INVALID=n    # Disable TWAI invalid-RX-frame workaround.
-# CONFIG_TWAI_ERRATA_FIX_RX_FIFO_CORRUPT=n     # Disable TWAI RX-FIFO-corruption workaround.
-# CONFIG_ETH_USE_ESP32_EMAC=n                  # Don’t use internal Ethernet MAC.
-# CONFIG_ETH_USE_SPI_ETHERNET=n                # Don’t use external SPI Ethernet chips.
-CONFIG_ESP_HTTP_CLIENT_ENABLE_BASIC_AUTH=y   # Enable Basic Auth in esp_http_client.
-CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048            # HTTP server: max request header size 2 KB.
-# CONFIG_HTTPD_MAX_URI_LEN=128                 # HTTP server: max URI length 128 chars.
-# CONFIG_ESP32_REV_MIN_1=y                     # Require/restrict to ESP32 revision v1+.
-# CONFIG_ESP_SLEEP_POWER_DOWN_FLASH=y          # Power down external flash in deep sleep.
-# CONFIG_ESP_PHY_REDUCE_TX_POWER=y             # Lower Wi-Fi PHY TX power to save energy/heat.
-# CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y        # Run CPU at 240 MHz by default.
-# CONFIG_ESP_SYSTEM_EVENT_QUEUE_SIZE=16        # System event loop queue length 16.
-# CONFIG_ESP_CONSOLE_NONE=y                    # No default console driver (no stdin/stdout).
-# CONFIG_ESP_DEBUG_OCDAWARE=n                  # Disable OpenOCD-aware debugging extras.
-# CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8       # Use 8 static Wi-Fi RX buffers.
-# CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16     # Allow up to 16 dynamic Wi-Fi RX buffers.
-# CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y           # Use static TX buffers for Wi-Fi (not dynamic).
-# CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8       # Allocate 8 static Wi-Fi TX buffers.
-# CONFIG_ESP_WIFI_TX_BA_WIN=12                 # Wi-Fi TX BlockAck window = 12.
-# CONFIG_ESP_WIFI_RX_BA_WIN=12                 # Wi-Fi RX BlockAck window = 12.
-# CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n            # Disable WPA3-SAE (WPA2/PSK only unless added).
-# CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=n # Don’t auto enable PM when STA disconnects.
-CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y        # Save coredumps to flash for post-mortem.
-# CONFIG_LOG_COLORS=y                          # Colorize log output.
-# CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y         # Use system time for log timestamps.
-CONFIG_LWIP_LOCAL_HOSTNAME="esp32xbee"       # mDNS/DHCP hostname string.
-# CONFIG_LWIP_L2_TO_L3_COPY=y                  # Copy L2 to L3 for certain LWIP paths (compat).
-# CONFIG_LWIP_MAX_SOCKETS=16                   # Total BSD sockets available.
-CONFIG_LWIP_IP_FORWARD=y                     # Enable IPv4 forwarding (router behavior).
-CONFIG_LWIP_IPV4_NAPT=y                      # Enable IPv4 NAPT (NAT with port translation).
-# CONFIG_LWIP_MAX_ACTIVE_TCP=12                # Max simultaneous active TCP PCBs (connections).
-# CONFIG_LWIP_MAX_LISTENING_TCP=12             # Max TCP listen PCBs (servers).
-# CONFIG_LWIP_TCP_SYNMAXRTX=6                  # Max SYN retransmits before giving up.
-# CONFIG_LWIP_TCP_MSS=1460                     # TCP MSS (for Ethernet MTU 1500).
-# CONFIG_LWIP_TCP_SND_BUF_DEFAULT=8192         # Default TCP send buffer size.
-# CONFIG_LWIP_TCP_WND_DEFAULT=8192             # Default TCP receive window size.
-# CONFIG_LWIP_MAX_UDP_PCBS=12                  # Max UDP PCBs (endpoints).
-# CONFIG_LWIP_MAX_RAW_PCBS=8                   # Max RAW PCBs (custom protocols).
-# CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=n      # Don’t enable variable content-len for RSA/ECC.
-# CONFIG_MBEDTLS_HARDWARE_MPI=n                # Don’t use HW big-integer acceleration.
-# CONFIG_MBEDTLS_HARDWARE_SHA=n                # Don’t use HW SHA acceleration.
-# CONFIG_MBEDTLS_PSK_MODES=y                   # Allow PSK TLS cipher suites.
-# CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y            # Enable PSK key exchange.
-# CONFIG_MBEDTLS_SSL_PROTO_DTLS=y              # Enable DTLS (TLS over UDP).
-# CONFIG_LIBC_STDIN_LINE_ENDING_CRLF=y         # Treat CRLF as line ending on stdin (Windows-friendly).
-CONFIG_SPIFFS_PAGE_SIZE=1024                 # SPIFFS page size = 1024 bytes.
+
+CONFIG_ESP_HTTP_CLIENT_ENABLE_BASIC_AUTH=y 
+# HTTP server: max request header size 2 KB.
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048            
+# Save coredumps to flash for post-mortem.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y        
+# mDNS/DHCP hostname string.
+CONFIG_LWIP_LOCAL_HOSTNAME="esp32xbee"       
+# Enable IPv4 forwarding (router behavior).
+CONFIG_LWIP_IP_FORWARD=y
+# Enable IPv4 NAPT (NAT with port translation).       
+CONFIG_LWIP_IPV4_NAPT=y                     
+
+CONFIG_SPIFFS_PAGE_SIZE=1024

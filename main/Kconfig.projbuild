@@ -6,7 +6,7 @@ config STATUS_LED_RED_GPIO
     int "Red LED GPIO (-1 to disable)"
     range -1 48
     default 21 if IDF_TARGET_ESP32
-    default -1 if IDF_TARGET_ESP32C3
+    default 4 if IDF_TARGET_ESP32C3
     help
       GPIO number for the Red channel. Use -1 to disable this color.
 
@@ -14,7 +14,7 @@ config STATUS_LED_GREEN_GPIO
     int "Green LED GPIO (-1 to disable)"
     range -1 48
     default 22 if IDF_TARGET_ESP32
-    default -1 if IDF_TARGET_ESP32C3
+    default 5 if IDF_TARGET_ESP32C3
     help
       GPIO number for the Green channel. Use -1 to disable this color.
 
@@ -22,7 +22,7 @@ config STATUS_LED_BLUE_GPIO
     int "Blue LED GPIO (-1 to disable)"
     range -1 48
     default 23 if IDF_TARGET_ESP32
-    default -1 if IDF_TARGET_ESP32C3
+    default 6 if IDF_TARGET_ESP32C3
     help
       GPIO number for the Blue channel. Use -1 to disable this color.
 
@@ -50,5 +50,62 @@ config STATUS_LED_ASSOC_GPIO
     default -1 if IDF_TARGET_ESP32C3
     help
       GPIO number for the Association status LED. Use -1 to disable.
+
+endmenu
+
+menu "UART"
+
+config UART_PORT
+    int "UART Port Number (0–2)"
+    range 0 2
+    default 0 if IDF_TARGET_ESP32
+    default 0 if IDF_TARGET_ESP32C3
+    help
+      Select which hardware UART controller to use.
+      - ESP32 has three UARTs (0, 1, 2).
+      - ESP32-C3 has two UARTs (0, 1).
+      Note: UART0 is typically used for logs/monitor; 
+      use UART1 or UART2 for application data to avoid conflicts.
+
+config UART_TX_GPIO
+    int "UART TX Pin (-1 to disable)"
+    range -1 48
+    default 1 if IDF_TARGET_ESP32
+    default 21 if IDF_TARGET_ESP32C3
+    help
+      GPIO pin number for UART transmit (TX).
+      Set to -1 if TX is not used.
+
+config UART_RX_GPIO
+    int "UART RX Pin (-1 to disable)"
+    range -1 48
+    default 3 if IDF_TARGET_ESP32
+    default 20 if IDF_TARGET_ESP32C3
+    help
+      GPIO pin number for UART receive (RX).
+      Set to -1 if RX is not used.
+
+config UART_BAUD_RATE
+    int "UART Baud Rate"
+    default 115200
+    help
+      Set the baud rate for UART communication.
+      Common values: 9600, 19200, 38400, 57600, 115200.      
+
+config UART_RTS_GPIO
+    int "UART RTS GPIO (-1 to disable)"
+    range -1 48
+    default -1
+    help
+      GPIO number used for UART RTS (Request To Send).
+      Set to -1 to disable hardware flow control output.
+
+config UART_CTS_GPIO
+    int "UART CTS GPIO (-1 to disable)"
+    range -1 48
+    default -1
+    help
+      GPIO number used for UART CTS (Clear To Send).
+      Set to -1 to disable hardware flow control input.
 
 endmenu
