@@ -107,5 +107,5 @@ config UART_CTS_GPIO
     help
       GPIO number used for UART CTS (Clear To Send).
       Set to -1 to disable hardware flow control input.
-
+      
 endmenu
