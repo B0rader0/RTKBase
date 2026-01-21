@@ -38,16 +38,16 @@ const config_item_t CONFIG_ITEMS[] = {
         // Admin
         {
                 .key = KEY_CONFIG_ADMIN_AUTH,
-                .type = CONFIG_ITEM_TYPE_INT8,
+                .type = TYPE_CONFIG_ITEM_INT8,
                 .def.int8 = 0
         },
         {
                 .key = KEY_CONFIG_ADMIN_USERNAME,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_ADMIN_PASSWORD,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .secret = true,
                 .def.str = ""
         },
@@ -55,19 +55,19 @@ const config_item_t CONFIG_ITEMS[] = {
         // Bluetooth
         {
                 .key = KEY_CONFIG_BLUETOOTH_ACTIVE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_BLUETOOTH_DEVICE_NAME,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_BLUETOOTH_DEVICE_DISCOVERABLE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = true
         }, {
                 .key = KEY_CONFIG_BLUETOOTH_PIN_CODE,
-                .type = CONFIG_ITEM_TYPE_UINT16,
+                .type = TYPE_CONFIG_ITEM_UINT16,
                 .secret = true,
                 .def.uint16 = 1234
         },
@@ -75,89 +75,89 @@ const config_item_t CONFIG_ITEMS[] = {
         // NTRIP
         {
                 .key = KEY_CONFIG_NTRIP_SERVER_ACTIVE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_NTRIP_SERVER_COLOR,
-                .type = CONFIG_ITEM_TYPE_COLOR,
+                .type = TYPE_CONFIG_ITEM_COLOR,
                 .def.color.rgba = 0x00000055u
         }, {
                 .key = KEY_CONFIG_NTRIP_SERVER_HOST,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_NTRIP_SERVER_PORT,
-                .type = CONFIG_ITEM_TYPE_UINT16,
+                .type = TYPE_CONFIG_ITEM_UINT16,
                 .def.uint16 = 2101
         }, {
                 .key = KEY_CONFIG_NTRIP_SERVER_MOUNTPOINT,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_NTRIP_SERVER_USERNAME,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_NTRIP_SERVER_PASSWORD,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .secret = true,
                 .def.str = ""
         },
 
         {
                 .key = KEY_CONFIG_NTRIP_CLIENT_ACTIVE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_NTRIP_CLIENT_COLOR,
-                .type = CONFIG_ITEM_TYPE_COLOR,
+                .type = TYPE_CONFIG_ITEM_COLOR,
                 .def.color.rgba = 0x00000055u
         }, {
                 .key = KEY_CONFIG_NTRIP_CLIENT_HOST,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_NTRIP_CLIENT_PORT,
-                .type = CONFIG_ITEM_TYPE_UINT16,
+                .type = TYPE_CONFIG_ITEM_UINT16,
                 .def.uint16 = 2101
         }, {
                 .key = KEY_CONFIG_NTRIP_CLIENT_MOUNTPOINT,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_NTRIP_CLIENT_USERNAME,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_NTRIP_CLIENT_PASSWORD,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .secret = true,
                 .def.str = ""
         },
 
         {
                 .key = KEY_CONFIG_NTRIP_CASTER_ACTIVE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_NTRIP_CASTER_COLOR,
-                .type = CONFIG_ITEM_TYPE_COLOR,
+                .type = TYPE_CONFIG_ITEM_COLOR,
                 .def.color.rgba = 0x00000055u
         }, {
                 .key = KEY_CONFIG_NTRIP_CASTER_PORT,
-                .type = CONFIG_ITEM_TYPE_UINT16,
+                .type = TYPE_CONFIG_ITEM_UINT16,
                 .def.uint16 = 2101
         }, {
                 .key = KEY_CONFIG_NTRIP_CASTER_MOUNTPOINT,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_NTRIP_CASTER_USERNAME,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_NTRIP_CASTER_PASSWORD,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .secret = true,
                 .def.str = ""
         },
@@ -165,188 +165,188 @@ const config_item_t CONFIG_ITEMS[] = {
         // Socket
         {
                 .key = KEY_CONFIG_SOCKET_SERVER_ACTIVE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_SOCKET_SERVER_COLOR,
-                .type = CONFIG_ITEM_TYPE_COLOR,
+                .type = TYPE_CONFIG_ITEM_COLOR,
                 .def.color.rgba = 0x00000055u
         }, {
                 .key = KEY_CONFIG_SOCKET_SERVER_TCP_PORT,
-                .type = CONFIG_ITEM_TYPE_UINT16,
+                .type = TYPE_CONFIG_ITEM_UINT16,
                 .def.uint16 = 23
         }, {
                 .key = KEY_CONFIG_SOCKET_SERVER_UDP_PORT,
-                .type = CONFIG_ITEM_TYPE_UINT16,
+                .type = TYPE_CONFIG_ITEM_UINT16,
                 .def.uint16 = 23
         },
 
         {
                 .key = KEY_CONFIG_SOCKET_CLIENT_ACTIVE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_SOCKET_CLIENT_COLOR,
-                .type = CONFIG_ITEM_TYPE_COLOR,
+                .type = TYPE_CONFIG_ITEM_COLOR,
                 .def.color.rgba = 0x00000055u
         }, {
                 .key = KEY_CONFIG_SOCKET_CLIENT_HOST,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_SOCKET_CLIENT_PORT,
-                .type = CONFIG_ITEM_TYPE_UINT16,
+                .type = TYPE_CONFIG_ITEM_UINT16,
                 .def.uint16 = 23
         }, {
                 .key = KEY_CONFIG_SOCKET_CLIENT_TYPE_TCP_UDP,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = true
         }, {
                 .key = KEY_CONFIG_SOCKET_CLIENT_CONNECT_MESSAGE,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = "\n"
         },
 
         // UART
         {
                 .key = KEY_CONFIG_UART_NUM,
-                .type = CONFIG_ITEM_TYPE_UINT8,
+                .type = TYPE_CONFIG_ITEM_UINT8,
                 .def.uint8 = CONFIG_UART_PORT // (GN)
                 // .def.uint8 = UART_NUM_0
         }, {
                 .key = KEY_CONFIG_UART_TX_PIN,
-                .type = CONFIG_ITEM_TYPE_UINT8,
+                .type = TYPE_CONFIG_ITEM_UINT8,
                 .def.uint8 = CONFIG_UART_TX_GPIO // (GN)
                 // .def.uint8 = GPIO_NUM_1
         }, {
                 .key = KEY_CONFIG_UART_RX_PIN,
-                .type = CONFIG_ITEM_TYPE_UINT8,
+                .type = TYPE_CONFIG_ITEM_UINT8,
                 .def.uint8 = CONFIG_UART_RX_GPIO // (GN)
                 // .def.uint8 = GPIO_NUM_3
         }, {
                 .key = KEY_CONFIG_UART_RTS_PIN,
-                .type = CONFIG_ITEM_TYPE_UINT8,
+                .type = TYPE_CONFIG_ITEM_UINT8,
                 .def.uint8 = CONFIG_UART_RTS_GPIO // (GN)
                 // .def.uint8 = GPIO_NUM_14
         }, {
                 .key = KEY_CONFIG_UART_CTS_PIN,
-                .type = CONFIG_ITEM_TYPE_UINT8,
+                .type = TYPE_CONFIG_ITEM_UINT8,
                 .def.uint8 = CONFIG_UART_CTS_GPIO // (GN)
                 // .def.uint8 = GPIO_NUM_33
         }, {
                 .key = KEY_CONFIG_UART_BAUD_RATE,
-                .type = CONFIG_ITEM_TYPE_UINT32,
+                .type = TYPE_CONFIG_ITEM_UINT32,
                 .def.uint32 = CONFIG_UART_BAUD_RATE // (GN)
                 // .def.uint32 = 115200
         }, {
                 .key = KEY_CONFIG_UART_DATA_BITS,
-                .type = CONFIG_ITEM_TYPE_INT8,
+                .type = TYPE_CONFIG_ITEM_INT8,
                 .def.int8 = UART_DATA_8_BITS
         }, {
                 .key = KEY_CONFIG_UART_STOP_BITS,
-                .type = CONFIG_ITEM_TYPE_INT8,
+                .type = TYPE_CONFIG_ITEM_INT8,
                 .def.int8 = UART_STOP_BITS_1
         }, {
                 .key = KEY_CONFIG_UART_PARITY,
-                .type = CONFIG_ITEM_TYPE_INT8,
+                .type = TYPE_CONFIG_ITEM_INT8,
                 .def.int8 = UART_PARITY_DISABLE
         }, {
                 .key = KEY_CONFIG_UART_FLOW_CTRL_RTS,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_UART_FLOW_CTRL_CTS,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_UART_LOG_FORWARD,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         },
 
         // WiFi
         {
                 .key = KEY_CONFIG_WIFI_AP_ACTIVE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = true
         }, {
                 .key = KEY_CONFIG_WIFI_AP_COLOR,
-                .type = CONFIG_ITEM_TYPE_COLOR,
+                .type = TYPE_CONFIG_ITEM_COLOR,
                 .def.color.rgba = 0x00000055u
         }, {
                 .key = KEY_CONFIG_WIFI_AP_SSID,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_WIFI_AP_SSID_HIDDEN,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_WIFI_AP_AUTH_MODE,
-                .type = CONFIG_ITEM_TYPE_UINT8,
+                .type = TYPE_CONFIG_ITEM_UINT8,
                 .def.uint8 = WIFI_AUTH_OPEN
         }, {
                 .key = KEY_CONFIG_WIFI_AP_PASSWORD,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .secret = true,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_WIFI_AP_GATEWAY,
-                .type = CONFIG_ITEM_TYPE_IP,
+                .type = TYPE_CONFIG_ITEM_IP,
                 // .def.uint32 = esp_netif_htonl(ESP_IP4TOADDR(192, 168, 4, 1))
                 .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 4, 1)) // IP Reverse Fix (GN)
         }, {
                 .key = KEY_CONFIG_WIFI_AP_SUBNET,
-                .type = CONFIG_ITEM_TYPE_UINT8,
+                .type = TYPE_CONFIG_ITEM_UINT8,
                 .def.uint8 = 24
         }, {
                 .key = KEY_CONFIG_WIFI_STA_ACTIVE,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_WIFI_STA_COLOR,
-                .type = CONFIG_ITEM_TYPE_COLOR,
+                .type = TYPE_CONFIG_ITEM_COLOR,
                 .def.color.rgba = 0x0044ff55u
         }, {
                 .key = KEY_CONFIG_WIFI_STA_SSID,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_WIFI_STA_PASSWORD,
-                .type = CONFIG_ITEM_TYPE_STRING,
+                .type = TYPE_CONFIG_ITEM_STRING,
                 .secret = true,
                 .def.str = ""
         }, {
                 .key = KEY_CONFIG_WIFI_STA_SCAN_MODE_ALL,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_WIFI_STA_AP_FORWARD,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_WIFI_STA_STATIC,
-                .type = CONFIG_ITEM_TYPE_BOOL,
+                .type = TYPE_CONFIG_ITEM_BOOL,
                 .def.bool1 = false
         }, {
                 .key = KEY_CONFIG_WIFI_STA_IP,
-                .type = CONFIG_ITEM_TYPE_IP,
+                .type = TYPE_CONFIG_ITEM_IP,
                 .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 0, 100))
         }, {
                 .key = KEY_CONFIG_WIFI_STA_GATEWAY,
-                .type = CONFIG_ITEM_TYPE_IP,
+                .type = TYPE_CONFIG_ITEM_IP,
                 .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 0, 1))
         }, {
                 .key = KEY_CONFIG_WIFI_STA_SUBNET,
-                .type = CONFIG_ITEM_TYPE_UINT8,
+                .type = TYPE_CONFIG_ITEM_UINT8,
                 .def.uint8 = 24
         }, {
                 .key = KEY_CONFIG_WIFI_STA_DNS_A,
-                .type = CONFIG_ITEM_TYPE_IP,
+                .type = TYPE_CONFIG_ITEM_IP,
                 .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(1, 1, 1, 1))
         }, {
                 .key = KEY_CONFIG_WIFI_STA_DNS_B,
-                .type = CONFIG_ITEM_TYPE_IP,
+                .type = TYPE_CONFIG_ITEM_IP,
                 .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(1, 0, 0, 1))
         }
 };
@@ -358,25 +358,25 @@ const config_item_t *config_items_get(int *count) {
 
 esp_err_t config_set(const config_item_t *item, void *value) {
     switch (item->type) {
-        case CONFIG_ITEM_TYPE_BOOL:
+        case TYPE_CONFIG_ITEM_BOOL:
             return config_set_bool1(item->key, *((bool *) value));
-        case CONFIG_ITEM_TYPE_INT8:
+        case TYPE_CONFIG_ITEM_INT8:
             return config_set_i8(item->key, *((int8_t *)value));
-        case CONFIG_ITEM_TYPE_INT16:
+        case TYPE_CONFIG_ITEM_INT16:
             return config_set_i16(item->key, *((int16_t *)value));
-        case CONFIG_ITEM_TYPE_INT32:
+        case TYPE_CONFIG_ITEM_INT32:
             return config_set_i32(item->key, *((int32_t *)value));
-        case CONFIG_ITEM_TYPE_INT64:
+        case TYPE_CONFIG_ITEM_INT64:
             return config_set_i64(item->key, *((int64_t *)value));
-        case CONFIG_ITEM_TYPE_UINT8:
+        case TYPE_CONFIG_ITEM_UINT8:
             return config_set_u8(item->key, *((uint8_t *)value));
-        case CONFIG_ITEM_TYPE_UINT16:
+        case TYPE_CONFIG_ITEM_UINT16:
             return config_set_u16(item->key, *((uint16_t *)value));
-        case CONFIG_ITEM_TYPE_UINT32:
+        case TYPE_CONFIG_ITEM_UINT32:
             return config_set_u32(item->key, *((uint32_t *)value));
-        case CONFIG_ITEM_TYPE_UINT64:
+        case TYPE_CONFIG_ITEM_UINT64:
             return config_set_u64(item->key, *((uint64_t *)value));
-        case CONFIG_ITEM_TYPE_STRING:
+        case TYPE_CONFIG_ITEM_STRING:
             return config_set_str(item->key, (char *) value);
         default:
             return ESP_ERR_INVALID_ARG;
@@ -528,44 +528,44 @@ const config_item_t * config_get_item(const char *key) {
 esp_err_t config_get_primitive(const config_item_t *item, void *out_value) {
     esp_err_t ret;
     switch (item->type) {
-        case CONFIG_ITEM_TYPE_BOOL:
+        case TYPE_CONFIG_ITEM_BOOL:
             *((bool *) out_value) = item->def.bool1;
             ret = nvs_get_i8(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_INT8:
+        case TYPE_CONFIG_ITEM_INT8:
             *((int8_t *) out_value) = item->def.int8;
             ret = nvs_get_i8(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_INT16:
+        case TYPE_CONFIG_ITEM_INT16:
             *((int16_t *) out_value) = item->def.int16;
             ret = nvs_get_i16(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_INT32:
+        case TYPE_CONFIG_ITEM_INT32:
             *((int32_t *) out_value) = item->def.int32;
             ret = nvs_get_i32(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_INT64:
+        case TYPE_CONFIG_ITEM_INT64:
             *((int64_t *) out_value) = item->def.int64;
             ret = nvs_get_i64(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_UINT8:
+        case TYPE_CONFIG_ITEM_UINT8:
             *((uint8_t *) out_value) = item->def.uint8;
             ret = nvs_get_u8(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_UINT16:
+        case TYPE_CONFIG_ITEM_UINT16:
             *((uint16_t *) out_value) = item->def.uint16;
             ret = nvs_get_u16(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_UINT32:
-        case CONFIG_ITEM_TYPE_IP:
+        case TYPE_CONFIG_ITEM_UINT32:
+        case TYPE_CONFIG_ITEM_IP:
             *((uint32_t *) out_value) = item->def.uint32;
             ret = nvs_get_u32(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_UINT64:
+        case TYPE_CONFIG_ITEM_UINT64:
             *((uint64_t *) out_value) = item->def.uint64;
             ret = nvs_get_u64(config_handle, item->key, out_value);
             break;
-        case CONFIG_ITEM_TYPE_COLOR:
+        case TYPE_CONFIG_ITEM_COLOR:
             *((config_color_t *) out_value) = item->def.color;
             ret = nvs_get_u32(config_handle, item->key, out_value);
             break;
@@ -588,14 +588,14 @@ esp_err_t config_get_str_blob(const config_item_t *item, void *out_value, size_t
     esp_err_t ret;
 
     switch (item->type) {
-        case CONFIG_ITEM_TYPE_STRING:
+        case TYPE_CONFIG_ITEM_STRING:
             ret = nvs_get_str(config_handle, item->key, out_value, length);
             if (ret == ESP_ERR_NVS_NOT_FOUND) {
                 if (length != NULL) *length = strlen(item->def.str) + 1;
                 if (out_value != NULL) strcpy(out_value, item->def.str);
             }
             break;
-        case CONFIG_ITEM_TYPE_BLOB:
+        case TYPE_CONFIG_ITEM_BLOB:
             ret = nvs_get_blob(config_handle, item->key, out_value, length);
             if (ret == ESP_ERR_NVS_NOT_FOUND) {
                 if (length != NULL) *length = item->def.blob.length;

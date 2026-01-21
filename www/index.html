@@ -1,6 +1,6 @@
 <html>
 <head>
-    <title>ESP32 XBee Config</title>
+    <title>RTK Base Config</title>
     <script src="jquery-3.4.1.min.js"></script>
     <script src="bs-4.3.1.bundle.min.js"></script>
     <link rel="stylesheet" href="bs-4.3.1.min.css">
@@ -10,15 +10,18 @@
         input::-webkit-inner-spin-button {
             /* display: none; <- Crashes Chrome on hover */
             -webkit-appearance: none;
+            appearance: none;
             margin: 0; /* <-- Apparently some margin are still there even though it's hidden */
         }
 
         input[type=number] {
-            -moz-appearance:textfield; /* Firefox */
+            -moz-appearance: textfield; /* Firefox */
+            appearance: textfield;
         }
 
         input[type=color] {
             -webkit-appearance: none;
+            appearance: none;
             border: none;
             width: 20px;
             border-radius: 5px;
@@ -472,7 +475,7 @@
 <body class="bg-light">
     <div class="container">
         <div class="pt-5 text-center">
-            <h2>ESP32 XBee Config <a id="project-version" href="https://github.com/nebkat/esp32-xbee/releases" class="text-muted small"></a> <a id="prerelease-available" class="text-info small" style="display: none">(beta available)</a></h2>
+            <h2>RTK Config <a id="project-version" href="https://github.com/nebkat/esp32-xbee/releases" class="text-muted small"></a> <a id="prerelease-available" class="text-info small" style="display: none">(beta available)</a></h2>
 
             <p class="lead">Adjust the settings below and then click on "Submit". The device will restart with the new settings applied. If you have adjusted WiFi settings the device may be moved onto a new IP address, or require you to reconnect to its access point.</p>
         </div>
@@ -806,13 +809,10 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card mb-3 border border-warning">
+                    <div class="card mb-3">
                         <div class="card-header">
-                            UART (main communication)
+                            UART configuration
                             <small class="uart-stats stream-stats" data-stream="uart"></small>
-                            <div class="d-inline float-right">
-                                <a href="javascript:void(0)" id="switch-uart">Configure</a>
-                            </div>
                         </div>
                         <div class="card-body" data-disable-if="#switch-uart" data-disable-if-condition=":visible">
                             <div class="form-row mb-3">
@@ -1022,19 +1022,6 @@
                                     <label>Mountpoint</label>
                                     <div class="input-group">
                                         <input type="text" name="ntr_srv_mp" class="form-control" maxlength="32" required>
-                                        <!--<div class="input-group-append">
-                                            <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-toggle="dropdown"></button>
-                                            <div class="dropdown-menu">
-                                                <a class="dropdown-item" href="#">Action</a>
-                                                <a class="dropdown-item" href="#">Another action</a>
-                                                <a class="dropdown-item" href="#">Something else here</a>
-                                                <div role="separator" class="dropdown-divider"></div>
-                                                <a class="dropdown-item" href="#">Separated link</a>
-                                            </div>
-                                        </div>
-                                        <div class="input-group-append">
-                                            <button type="button" class="btn btn-outline-secondary">Search</button>
-                                        </div>-->
                                     </div>
                                 </div>
                             </div>
@@ -1186,7 +1173,7 @@
                     <h4 class="modal-title">Waiting for restart...</h4>
                 </div>
                 <div class="modal-body">
-                    <p>The ESP32 XBee has been restarted to apply the new configuration.</p>
+                    <p>The RTK Base has been restarted to apply the new configuration.</p>
                     <p>Please wait a few seconds, and this page will automatically reload.</p>
                     <p>If you have made changes to the WiFi connection, or are using the ESP32's WiFi hotspot, you may need to check your device's WiFi connection, or read the new IP address from a serial terminal.</p>
                 </div>

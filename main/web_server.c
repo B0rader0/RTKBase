@@ -20,6 +20,8 @@
 #include <wifi.h>
 #include <cJSON.h>
 #include <sys/param.h>
+#include <sys/stat.h>
+#include <dirent.h>
 #include <esp_vfs.h>
 #include <esp_spiffs.h>
 #include <mdns.h>
@@ -29,20 +31,18 @@
 #include <util.h>
 #include <lwip/inet.h>
 #include <esp_ota_ops.h>
-// #include <esp_netif_sta_list.h> In ESP-IDF ≥5.0 that header (and its API) was removed. (GN)
+#include <esp_wifi_ap_get_sta_list.h> 
 #include <stream_stats.h>
 #include <esp32/rom/crc.h>
 #include <lwip/sockets.h>
+#include <esp_timer.h>
 #include "web_server.h"
 
-// used to replace <esp_netif_sta_list.h> (GN)
 #include "esp_wifi.h"
 #include "esp_event.h"
-#include "esp_wifi_ap_get_sta_list.h"   // new in IDF ≥5.0 (GN)
 #include "esp_netif.h"
 #include "esp_mac.h"                    // MACSTR/MAC2STR (GN)
-#include "esp_timer.h"
-
+#include "config.h"
 #include <inttypes.h>   // at top of file (GN)
 
 // Max length a file path can have on storage
@@ -70,7 +70,7 @@ static enum auth_method auth_method;
     (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
 
 static esp_err_t www_spiffs_init() {
-    ESP_LOGD(TAG, "Initializing SPIFFS");
+    ESP_LOGI(TAG, "Initializing SPIFFS...");
 
     esp_vfs_spiffs_conf_t conf = {
             .base_path = WWW_PARTITION_PATH,
@@ -98,7 +98,27 @@ static esp_err_t www_spiffs_init() {
         return ESP_FAIL;
     }
 
-    ESP_LOGD(TAG, "Partition size: total: %d, used: %d", total, used);
+   ESP_LOGI(TAG, "SPIFFS: total=%d bytes, used=%d bytes (%.1f%%)", 
+             total, used, (used * 100.0) / total);
+    
+    // List files in SPIFFS
+    DIR *dir = opendir(WWW_PARTITION_PATH);
+    if (dir) {
+        ESP_LOGI(TAG, "Files in %s:", WWW_PARTITION_PATH);
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            char full_path[300];
+            snprintf(full_path, sizeof(full_path), "%s/%s", WWW_PARTITION_PATH, entry->d_name);
+            struct stat st;
+            if (stat(full_path, &st) == 0) {
+                ESP_LOGI(TAG, "  - %s (%ld bytes)", entry->d_name, st.st_size);
+            }
+        }
+        closedir(dir);
+    } else {
+        ESP_LOGE(TAG, "Failed to open directory %s", WWW_PARTITION_PATH);
+    }
+    
     return ESP_OK;
 }
 
@@ -141,8 +161,8 @@ static char* get_path_from_uri(char *dest, const char *base_path, const char *ur
     }
 
     // Construct full path (base + path)
-    strcpy(dest, base_path);
-    strlcpy(dest + base_pathlen, uri, pathlen + 1);
+    strlcpy(dest, base_path, destsize);
+    strlcpy(dest + base_pathlen, uri, destsize - base_pathlen);
 
     // Return pointer to path, skipping the base
     return dest + base_pathlen;
@@ -220,12 +240,7 @@ static esp_err_t hotspot_auth(httpd_req_t *req) {
         const esp_netif_pair_mac_ip_t *e = &mac_ip_list.sta[i];
         ESP_LOGI(TAG, "STA " MACSTR "  IP: " IPSTR, MAC2STR(e->mac), IP2STR(&e->ip));
     }
-    // for (int i = 0; i < mac_ip_list.num; ++i)
-    // {
-    //     const wifi_sta_mac_ip_t *e = &mac_ip_list.sta[i];
-    //     ESP_LOGI(TAG, "STA " MACSTR "  IP: " IPSTR, MAC2STR(e->mac), IP2STR(&e->ip));
-    // }
-
+    
     //_auth_error:
     httpd_resp_set_status(req, "401"); // Unauthorized
     char *unauthorized = "401 Unauthorized - Configured to only accept connections from hotspot devices";
@@ -270,12 +285,10 @@ static esp_err_t core_dump_get_handler(httpd_req_t *req) {
 
     httpd_resp_set_type(req, "application/octet-stream");
 
-    // const esp_app_desc_t *app_desc = esp_ota_get_app_description();
-    const esp_app_desc_t *app_desc = esp_app_get_description(); // new for IDF v5 (GN)
+    const esp_app_desc_t *app_desc = esp_app_get_description(); // new for IDF v5 
 
     char elf_sha256[7];
-    // esp_ota_get_app_elf_sha256(elf_sha256, sizeof(elf_sha256));
-    esp_app_get_elf_sha256(elf_sha256, sizeof(elf_sha256)); // new for IDF v5 (GN)
+    esp_app_get_elf_sha256(elf_sha256, sizeof(elf_sha256)); // new for IDF v5 
 
     time_t t = time(NULL);
     char date[20] = "\0";
@@ -348,15 +361,14 @@ static esp_err_t file_check_etag_hash(httpd_req_t *req, char *file_hash_path, ch
         httpd_req_get_hdr_value_str(req, "If-None-Match", if_none_match, if_none_match_length);
 
         bool header_match = strcmp(etag, if_none_match) == 0;
-        // free(if_none_match);
-
+        
         // Matching ETag, return not modified
         if (header_match) {
-            free(if_none_match); // (GN)
+            free(if_none_match); 
             return ESP_OK;
         } else {
             ESP_LOGW(TAG, "ETag for file %s sent by client does not match (%s != %s)", file_hash_path, etag, if_none_match);
-            free(if_none_match); // (GN)
+            free(if_none_match); 
             return ESP_ERR_INVALID_CRC;
         }
     }
@@ -381,7 +393,7 @@ static esp_err_t file_get_handler(httpd_req_t *req) {
 
     // If name has trailing '/', respond with index page
     if (file_name[strlen(file_name) - 1] == '/' && strlen(file_name) + strlen("index.html") < FILE_PATH_MAX) {
-        strcpy(&file_name[strlen(file_name)], "index.html");
+        strlcat(file_name, "index.html", FILE_PATH_MAX);
 
         httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     }
@@ -395,8 +407,8 @@ static esp_err_t file_get_handler(httpd_req_t *req) {
     }, "Could not stat file %s", file_path)
 
     // Check file hash (if matches request, file is not modified)
-    strcpy(file_hash_path, file_path);
-    strcpy(&file_hash_path[strlen(file_hash_path)], FILE_HASH_SUFFIX);
+    strlcpy(file_hash_path, file_path, sizeof(file_hash_path));
+    strlcat(file_hash_path, FILE_HASH_SUFFIX, sizeof(file_hash_path));
     char etag[8 + 2 + 1] = ""; // Store CRC32, quotes and \0
     if (file_check_etag_hash(req, file_hash_path, etag, sizeof(etag)) == ESP_OK) {
         httpd_resp_set_status(req, "304 Not Modified");
@@ -451,12 +463,12 @@ static esp_err_t file_get_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// Provides response to the GET request from the WEB interface
 static esp_err_t config_get_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
     cJSON *root = cJSON_CreateObject();
 
-    // const esp_app_desc_t *app_desc = esp_ota_get_app_description();
     const esp_app_desc_t *app_desc = esp_app_get_description(); // new for IDF v5 (GN)
     cJSON_AddStringToObject(root, "version", app_desc->version);
 
@@ -475,8 +487,8 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
         esp_ip4_addr_t ip;
 
         switch (item->type) {
-            case CONFIG_ITEM_TYPE_STRING:
-            case CONFIG_ITEM_TYPE_BLOB:
+            case TYPE_CONFIG_ITEM_STRING:
+            case TYPE_CONFIG_ITEM_BLOB:
                 // Get length
                 ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_str_blob(item, NULL, &length));
                 string = calloc(1, length + 1);
@@ -485,12 +497,12 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
                 ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_str_blob(item, string, &length));
                 string[length] = '\0';
                 break;
-            case CONFIG_ITEM_TYPE_COLOR:
+            case TYPE_CONFIG_ITEM_COLOR:
                 // Convert to hex
                 ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_primitive(item, &color));
                 asprintf(&string, "#%02x%02x%02x", color.values.red, color.values.green, color.values.blue);
                 break;
-            case CONFIG_ITEM_TYPE_IP:
+            case TYPE_CONFIG_ITEM_IP:
                 ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_primitive(item, &ip));
                 cJSON *ip_parts = cJSON_AddArrayToObject(root, item->key);
                 for (int b = 0; b < 4; b++) {
@@ -498,18 +510,18 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
                 }
 
                 break;
-            case CONFIG_ITEM_TYPE_UINT8:
-            case CONFIG_ITEM_TYPE_UINT16:
-            case CONFIG_ITEM_TYPE_UINT32:
-            case CONFIG_ITEM_TYPE_UINT64:
+            case TYPE_CONFIG_ITEM_UINT8:
+            case TYPE_CONFIG_ITEM_UINT16:
+            case TYPE_CONFIG_ITEM_UINT32:
+            case TYPE_CONFIG_ITEM_UINT64:
                 ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_primitive(item, &uint64));
                 asprintf(&string, "%llu", uint64);
                 break;
-            case CONFIG_ITEM_TYPE_BOOL:
-            case CONFIG_ITEM_TYPE_INT8:
-            case CONFIG_ITEM_TYPE_INT16:
-            case CONFIG_ITEM_TYPE_INT32:
-            case CONFIG_ITEM_TYPE_INT64:
+            case TYPE_CONFIG_ITEM_BOOL:
+            case TYPE_CONFIG_ITEM_INT8:
+            case TYPE_CONFIG_ITEM_INT16:
+            case TYPE_CONFIG_ITEM_INT32:
+            case TYPE_CONFIG_ITEM_INT64:
                 ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_primitive(item, &int64));
                 asprintf(&string, "%lld", int64);
                 break;
@@ -559,21 +571,24 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
                 length = strlen(entry->valuestring);
 
                 // Ignore empty primitives
-                if (length == 0 && item.type != CONFIG_ITEM_TYPE_BLOB && item.type != CONFIG_ITEM_TYPE_STRING) continue;
+                if (length == 0 && item.type != TYPE_CONFIG_ITEM_BLOB && item.type != TYPE_CONFIG_ITEM_STRING) continue;
 
                 // Ignore unchanged values
                 if (strcmp(entry->valuestring, CONFIG_VALUE_UNCHANGED) == 0) continue;
             }
 
             // TODO: Cleanup
+            // REFACTORING NEEDED: This large if-else chain should be refactored into
+            // a switch statement or a lookup table for better maintainability.
+            // Consider extracting each type handler into separate functions.
             esp_err_t err;
-            if (item.type > CONFIG_ITEM_TYPE_MAX) {
+            if (item.type > TYPE_CONFIG_ITEM_MAX) {
                 err = ESP_ERR_INVALID_ARG;
-            } else if (item.type == CONFIG_ITEM_TYPE_STRING) {
+            } else if (item.type == TYPE_CONFIG_ITEM_STRING) {
                 err = config_set_str(item.key, entry->valuestring);
-            } else if (item.type == CONFIG_ITEM_TYPE_BLOB) {
+            } else if (item.type == TYPE_CONFIG_ITEM_BLOB) {
                 err = config_set_blob(item.key, entry->valuestring, length);
-            } else if (item.type == CONFIG_ITEM_TYPE_COLOR) {
+            } else if (item.type == TYPE_CONFIG_ITEM_COLOR) {
                 bool is_black = strcmp(entry->valuestring, "#000000") == 0;
                 config_color_t color;
                 color.rgba = strtoul(entry->valuestring + 1, NULL, 16) << 8u;
@@ -586,7 +601,7 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
 
                     err = config_set_color(item.key, color);
                 }
-            } else if (item.type == CONFIG_ITEM_TYPE_IP) {
+            } else if (item.type == TYPE_CONFIG_ITEM_IP) {
                 uint8_t a[4];
 
                 if (!cJSON_IsArray(entry) || cJSON_GetArraySize(entry) != 4) {
@@ -597,7 +612,6 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
                     }
 ;
                     uint32_t ip = esp_netif_htonl(esp_netif_ip4_makeu32(a[0], a[1], a[2], a[3]));
-                    // uint32_t ip = esp_netif_ip4_makeu32(a[0], a[1], a[2], a[3]); // IP Reverse Fix (GN)
                     err = config_set_u32(item.key, ip);
                 }
             } else {
@@ -609,17 +623,17 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
                     err = ESP_ERR_INVALID_ARG;
                 } else {
                     switch (item.type) {
-                        case CONFIG_ITEM_TYPE_BOOL:
-                        case CONFIG_ITEM_TYPE_INT8:
-                        case CONFIG_ITEM_TYPE_INT16:
-                        case CONFIG_ITEM_TYPE_INT32:
-                        case CONFIG_ITEM_TYPE_INT64:
+                        case TYPE_CONFIG_ITEM_BOOL:
+                        case TYPE_CONFIG_ITEM_INT8:
+                        case TYPE_CONFIG_ITEM_INT16:
+                        case TYPE_CONFIG_ITEM_INT32:
+                        case TYPE_CONFIG_ITEM_INT64:
                             err = config_set(&item, &int64);
                             break;
-                        case CONFIG_ITEM_TYPE_UINT8:
-                        case CONFIG_ITEM_TYPE_UINT16:
-                        case CONFIG_ITEM_TYPE_UINT32:
-                        case CONFIG_ITEM_TYPE_UINT64:
+                        case TYPE_CONFIG_ITEM_UINT8:
+                        case TYPE_CONFIG_ITEM_UINT16:
+                        case TYPE_CONFIG_ITEM_UINT32:
+                        case TYPE_CONFIG_ITEM_UINT64:
                             err = config_set(&item, &uint64);
                             break;
                         default:
@@ -724,7 +738,7 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     }
 
     cJSON *sta = cJSON_AddObjectToObject(wifi, "sta");
-    cJSON_AddBoolToObject(sta, "active", ap_status.active);
+    cJSON_AddBoolToObject(sta, "active", sta_status.active);
     if (sta_status.active) {
         cJSON_AddBoolToObject(sta, "connected", sta_status.connected);
         if (sta_status.connected) {
