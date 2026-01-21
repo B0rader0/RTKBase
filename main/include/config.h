@@ -49,6 +49,9 @@ typedef union {
 
 } config_item_value_t;
 
+// Structure defining a configuration item as a key-value pair with type and default value
+// The actual keys and defauld values are defined in an array in config.c
+// The modified values are stored in NVS
 typedef struct config_item {
     char *key;
     config_item_type_t type;
@@ -58,10 +61,12 @@ typedef struct config_item {
 
 #define CONFIG_VALUE_UNCHANGED "\x1a\x1a\x1a\x1a\x1a\x1a\x1a\x1a"
 
-// Admin
-#define KEY_CONFIG_ADMIN_AUTH "adm_auth"
+// All keys of all properties that can be configured
+// The strings need to correspond to the JSON keys used in the web interface
+// Admin - username, password and whether to use authentication
 #define KEY_CONFIG_ADMIN_USERNAME "adm_user"
 #define KEY_CONFIG_ADMIN_PASSWORD "adm_pass"
+#define KEY_CONFIG_ADMIN_AUTH "adm_auth"
 
 // Bluetooth
 #define KEY_CONFIG_BLUETOOTH_ACTIVE "bt_active"
@@ -69,7 +74,7 @@ typedef struct config_item {
 #define KEY_CONFIG_BLUETOOTH_DEVICE_DISCOVERABLE "bt_dev_vis"
 #define KEY_CONFIG_BLUETOOTH_PIN_CODE "bt_pin_code"
 
-// NTRIP
+// NTRIP Server
 #define KEY_CONFIG_NTRIP_SERVER_ACTIVE "ntr_srv_active"
 #define KEY_CONFIG_NTRIP_SERVER_COLOR "ntr_srv_color"
 #define KEY_CONFIG_NTRIP_SERVER_HOST "ntr_srv_host"
@@ -78,6 +83,7 @@ typedef struct config_item {
 #define KEY_CONFIG_NTRIP_SERVER_USERNAME "ntr_srv_user"
 #define KEY_CONFIG_NTRIP_SERVER_PASSWORD "ntr_srv_pass"
 
+// NTRIP Client
 #define KEY_CONFIG_NTRIP_CLIENT_ACTIVE "ntr_cli_active"
 #define KEY_CONFIG_NTRIP_CLIENT_COLOR "ntr_cli_color"
 #define KEY_CONFIG_NTRIP_CLIENT_HOST "ntr_cli_host"
@@ -86,6 +92,7 @@ typedef struct config_item {
 #define KEY_CONFIG_NTRIP_CLIENT_USERNAME "ntr_cli_user"
 #define KEY_CONFIG_NTRIP_CLIENT_PASSWORD "ntr_cli_pass"
 
+// NTRIP Caster
 #define KEY_CONFIG_NTRIP_CASTER_ACTIVE "ntr_cst_active"
 #define KEY_CONFIG_NTRIP_CASTER_COLOR "ntr_cst_color"
 #define KEY_CONFIG_NTRIP_CASTER_PORT "ntr_cst_port"
@@ -93,12 +100,13 @@ typedef struct config_item {
 #define KEY_CONFIG_NTRIP_CASTER_USERNAME "ntr_cst_user"
 #define KEY_CONFIG_NTRIP_CASTER_PASSWORD "ntr_cst_pass"
 
-// Socket
+// Socket Server
 #define KEY_CONFIG_SOCKET_SERVER_ACTIVE "sck_srv_active"
 #define KEY_CONFIG_SOCKET_SERVER_COLOR "sck_srv_color"
 #define KEY_CONFIG_SOCKET_SERVER_TCP_PORT "sck_srv_t_port"
 #define KEY_CONFIG_SOCKET_SERVER_UDP_PORT "sck_srv_u_port"
 
+// Socket Client
 #define KEY_CONFIG_SOCKET_CLIENT_ACTIVE "sck_cli_active"
 #define KEY_CONFIG_SOCKET_CLIENT_COLOR "sck_cli_color"
 #define KEY_CONFIG_SOCKET_CLIENT_HOST "sck_cli_host"
@@ -120,7 +128,7 @@ typedef struct config_item {
 #define KEY_CONFIG_UART_FLOW_CTRL_CTS "uart_fc_cts"
 #define KEY_CONFIG_UART_LOG_FORWARD "uart_log_fwd"
 
-// WiFi
+// WiFi AP (access point)
 #define KEY_CONFIG_WIFI_AP_ACTIVE "w_ap_active"
 #define KEY_CONFIG_WIFI_AP_COLOR "w_ap_color"
 #define KEY_CONFIG_WIFI_AP_SSID "w_ap_ssid"
@@ -130,6 +138,7 @@ typedef struct config_item {
 #define KEY_CONFIG_WIFI_AP_GATEWAY "w_ap_gw"
 #define KEY_CONFIG_WIFI_AP_SUBNET "w_ap_subnet"
 
+// WiFi STA (station)
 #define KEY_CONFIG_WIFI_STA_ACTIVE "w_sta_active"
 #define KEY_CONFIG_WIFI_STA_COLOR "w_sta_color"
 #define KEY_CONFIG_WIFI_STA_SSID "w_sta_ssid"
