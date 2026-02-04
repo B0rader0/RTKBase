@@ -30,7 +30,6 @@
 #include "driver/uart.h"
 #include "driver/ledc.h"
 #include "button.h"
-
 #include "config.h"
 #include "wifi.h"
 #include "interface/socket_server.h"
@@ -63,7 +62,7 @@ static void sntp_time_set_handler(struct timeval *tv) {
 
 void app_main()
 {
-    status_led_init();
+    status_led_init(); 
     status_led_handle_t status_led = status_led_add(0xFFFFFF33, STATUS_LED_FADE, 250, 2500, 0);
 
     log_init();
@@ -84,11 +83,9 @@ void app_main()
 
     esp_reset_reason_t reset_reason = esp_reset_reason();
 
-    // const esp_app_desc_t *app_desc = esp_ota_get_app_description();
-    const esp_app_desc_t *app_desc = esp_app_get_description(); // new v5 (GN)
+    const esp_app_desc_t *app_desc = esp_app_get_description(); 
     char elf_buffer[17];
-    // esp_ota_get_app_elf_sha256(elf_buffer, sizeof(elf_buffer));
-    esp_app_get_elf_sha256(elf_buffer, sizeof(elf_buffer)); // new v5 (GN)
+    esp_app_get_elf_sha256(elf_buffer, sizeof(elf_buffer)); 
 
     uart_nmea("$PESP,INIT,START,%s,%s", app_desc->version, reset_reason_name(reset_reason));
 
@@ -139,14 +136,11 @@ void app_main()
 
     wait_for_ip();
 
-    // sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL); // new for IDF v5 (GN)
-    // sntp_setservername(0, "pool.ntp.org");
-    esp_sntp_setservername(0, "pool.ntp.org"); // new for IDF v5 (GN)
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL); 
+    esp_sntp_setservername(0, "pool.ntp.org"); 
     sntp_set_sync_mode(SNTP_SYNC_MODE_SMOOTH);
     sntp_set_time_sync_notification_cb(sntp_time_set_handler);
-    // sntp_init(); // old
-    esp_sntp_init(); // new for IDF v5 (GN)
+    esp_sntp_init(); 
 
 #ifdef DEBUG_HEAP
     while (true) {

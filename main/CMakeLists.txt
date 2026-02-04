@@ -1,4 +1,6 @@
-idf_component_register(SRCS "main.c"
+idf_component_register(
+	SRCS
+		"main.c"
 		"config.c"
 		"core_dump.c"
 		"log.c"
@@ -16,6 +18,24 @@ idf_component_register(SRCS "main.c"
 		"interface/socket_client.c"
 		"interface/socket_server.c"
 		"protocol/nmea.c"
-        INCLUDE_DIRS "include")
+	INCLUDE_DIRS 
+		"include"
+	REQUIRES
+		"esp_wifi"
+		"espcoredump"
+		"tcp_transport"
+		"app_update"
+		"esp_http_server"
+		"json"
+		"spiffs"
+		"esp_timer"
+		"lwip"
+		"esp_netif"
+		"freertos"
+		"esp_event"
+		"esp_system"
+		"nvs_flash"
+		"button"
+)
 
 spiffs_create_partition_image(www ../www FLASH_IN_PROJECT)

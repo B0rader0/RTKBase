@@ -1,3 +1,5 @@
+#pragma once
+
 #define PIN_BIT(x) (1ULL<<x)
 
 #define BUTTON_DOWN (1)

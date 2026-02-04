@@ -1,5 +1,4 @@
-#ifndef ESP32_XBEE_CONFIG_H
-#define ESP32_XBEE_CONFIG_H
+#pragma once
 
 #include <stddef.h>
 
@@ -66,52 +65,52 @@ typedef struct config_item {
 // Admin - username, password and whether to use authentication
 #define KEY_CONFIG_ADMIN_USERNAME "adm_user"
 #define KEY_CONFIG_ADMIN_PASSWORD "adm_pass"
-#define KEY_CONFIG_ADMIN_AUTH "adm_auth"
+#define KEY_CONFIG_ADMIN_AUTH     "adm_auth"
 
 // Bluetooth
-#define KEY_CONFIG_BLUETOOTH_ACTIVE "bt_active"
-#define KEY_CONFIG_BLUETOOTH_DEVICE_NAME "bt_dev_name"
+#define KEY_CONFIG_BLUETOOTH_ACTIVE              "bt_active"
+#define KEY_CONFIG_BLUETOOTH_DEVICE_NAME         "bt_dev_name"
 #define KEY_CONFIG_BLUETOOTH_DEVICE_DISCOVERABLE "bt_dev_vis"
-#define KEY_CONFIG_BLUETOOTH_PIN_CODE "bt_pin_code"
+#define KEY_CONFIG_BLUETOOTH_PIN_CODE            "bt_pin_code"
 
 // NTRIP Server
-#define KEY_CONFIG_NTRIP_SERVER_ACTIVE "ntr_srv_active"
-#define KEY_CONFIG_NTRIP_SERVER_COLOR "ntr_srv_color"
-#define KEY_CONFIG_NTRIP_SERVER_HOST "ntr_srv_host"
-#define KEY_CONFIG_NTRIP_SERVER_PORT "ntr_srv_port"
+#define KEY_CONFIG_NTRIP_SERVER_ACTIVE     "ntr_srv_active"
+#define KEY_CONFIG_NTRIP_SERVER_COLOR      "ntr_srv_color"
+#define KEY_CONFIG_NTRIP_SERVER_HOST       "ntr_srv_host"
+#define KEY_CONFIG_NTRIP_SERVER_PORT       "ntr_srv_port"
 #define KEY_CONFIG_NTRIP_SERVER_MOUNTPOINT "ntr_srv_mp"
-#define KEY_CONFIG_NTRIP_SERVER_USERNAME "ntr_srv_user"
-#define KEY_CONFIG_NTRIP_SERVER_PASSWORD "ntr_srv_pass"
+#define KEY_CONFIG_NTRIP_SERVER_USERNAME   "ntr_srv_user"
+#define KEY_CONFIG_NTRIP_SERVER_PASSWORD   "ntr_srv_pass"
 
 // NTRIP Client
-#define KEY_CONFIG_NTRIP_CLIENT_ACTIVE "ntr_cli_active"
-#define KEY_CONFIG_NTRIP_CLIENT_COLOR "ntr_cli_color"
-#define KEY_CONFIG_NTRIP_CLIENT_HOST "ntr_cli_host"
-#define KEY_CONFIG_NTRIP_CLIENT_PORT "ntr_cli_port"
+#define KEY_CONFIG_NTRIP_CLIENT_ACTIVE     "ntr_cli_active"
+#define KEY_CONFIG_NTRIP_CLIENT_COLOR      "ntr_cli_color"
+#define KEY_CONFIG_NTRIP_CLIENT_HOST       "ntr_cli_host"
+#define KEY_CONFIG_NTRIP_CLIENT_PORT       "ntr_cli_port"
 #define KEY_CONFIG_NTRIP_CLIENT_MOUNTPOINT "ntr_cli_mp"
-#define KEY_CONFIG_NTRIP_CLIENT_USERNAME "ntr_cli_user"
-#define KEY_CONFIG_NTRIP_CLIENT_PASSWORD "ntr_cli_pass"
+#define KEY_CONFIG_NTRIP_CLIENT_USERNAME   "ntr_cli_user"
+#define KEY_CONFIG_NTRIP_CLIENT_PASSWORD   "ntr_cli_pass"
 
 // NTRIP Caster
-#define KEY_CONFIG_NTRIP_CASTER_ACTIVE "ntr_cst_active"
-#define KEY_CONFIG_NTRIP_CASTER_COLOR "ntr_cst_color"
-#define KEY_CONFIG_NTRIP_CASTER_PORT "ntr_cst_port"
+#define KEY_CONFIG_NTRIP_CASTER_ACTIVE     "ntr_cst_active"
+#define KEY_CONFIG_NTRIP_CASTER_COLOR      "ntr_cst_color"
+#define KEY_CONFIG_NTRIP_CASTER_PORT       "ntr_cst_port"
 #define KEY_CONFIG_NTRIP_CASTER_MOUNTPOINT "ntr_cst_mp"
-#define KEY_CONFIG_NTRIP_CASTER_USERNAME "ntr_cst_user"
-#define KEY_CONFIG_NTRIP_CASTER_PASSWORD "ntr_cst_pass"
+#define KEY_CONFIG_NTRIP_CASTER_USERNAME   "ntr_cst_user"
+#define KEY_CONFIG_NTRIP_CASTER_PASSWORD   "ntr_cst_pass"
 
 // Socket Server
-#define KEY_CONFIG_SOCKET_SERVER_ACTIVE "sck_srv_active"
-#define KEY_CONFIG_SOCKET_SERVER_COLOR "sck_srv_color"
-#define KEY_CONFIG_SOCKET_SERVER_TCP_PORT "sck_srv_t_port"
-#define KEY_CONFIG_SOCKET_SERVER_UDP_PORT "sck_srv_u_port"
+#define KEY_CONFIG_SOCKET_SERVER_ACTIVE    "sck_srv_active"
+#define KEY_CONFIG_SOCKET_SERVER_COLOR     "sck_srv_color"
+#define KEY_CONFIG_SOCKET_SERVER_TCP_PORT  "sck_srv_t_port"
+#define KEY_CONFIG_SOCKET_SERVER_UDP_PORT  "sck_srv_u_port"
 
 // Socket Client
-#define KEY_CONFIG_SOCKET_CLIENT_ACTIVE "sck_cli_active"
-#define KEY_CONFIG_SOCKET_CLIENT_COLOR "sck_cli_color"
-#define KEY_CONFIG_SOCKET_CLIENT_HOST "sck_cli_host"
-#define KEY_CONFIG_SOCKET_CLIENT_PORT "sck_cli_port"
-#define KEY_CONFIG_SOCKET_CLIENT_TYPE_TCP_UDP "sck_cli_type"
+#define KEY_CONFIG_SOCKET_CLIENT_ACTIVE          "sck_cli_active"
+#define KEY_CONFIG_SOCKET_CLIENT_COLOR           "sck_cli_color"
+#define KEY_CONFIG_SOCKET_CLIENT_HOST            "sck_cli_host"
+#define KEY_CONFIG_SOCKET_CLIENT_PORT            "sck_cli_port"
+#define KEY_CONFIG_SOCKET_CLIENT_TYPE_TCP_UDP    "sck_cli_type"
 #define KEY_CONFIG_SOCKET_CLIENT_CONNECT_MESSAGE "sck_cli_msg"
 
 // UART
@@ -191,5 +190,3 @@ esp_err_t config_get_primitive(const config_item_t *item, void *out_value);
 
 esp_err_t config_commit();
 void config_restart();
-
-#endif //ESP32_XBEE_CONFIG_H

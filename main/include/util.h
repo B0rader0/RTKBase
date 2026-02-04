@@ -1,5 +1,4 @@
-#ifndef ESP32_XBEE_UTIL_H
-#define ESP32_XBEE_UTIL_H
+#pragma once
 
 #include <esp_transport.h>
 #include <sys/socket.h>
@@ -28,4 +27,3 @@ char *extract_http_header(const char *buffer, const char *key);
 int connect_socket(char *host, int port, int socktype);
 char *http_auth_basic_header(const char *username, const char *password);
 
-#endif //ESP32_XBEE_UTIL_H

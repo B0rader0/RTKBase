@@ -1,5 +1,4 @@
-#ifndef ESP32_XBEE_STATUS_LED_H
-#define ESP32_XBEE_STATUS_LED_H
+#pragma once
 
 #include <sys/queue.h>
 
@@ -36,5 +35,3 @@ void assoc_led_set(uint8_t value);
 void assoc_led_fade(uint8_t value, int max_fade_time_ms);
 void sleep_led_set(uint8_t value);
 void sleep_led_fade(uint8_t value, int max_fade_time_ms);
-
-#endif //ESP32_XBEE_STATUS_LED_H

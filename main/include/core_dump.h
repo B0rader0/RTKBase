@@ -15,11 +15,9 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ESP32_XBEE_CORE_DUMP_H
-#define ESP32_XBEE_CORE_DUMP_H
+#pragma once
 
 void core_dump_check();
 size_t core_dump_available();
 esp_err_t core_dump_read(size_t offset, void *buffer, size_t len);
 
-#endif //ESP32_XBEE_CORE_DUMP_H

@@ -15,8 +15,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ESP32_XBEE_STREAM_STATS_H
-#define ESP32_XBEE_STREAM_STATS_H
+#pragma once
 
 #include <stdint.h>
 
@@ -40,5 +39,3 @@ void stream_stats_values(stream_stats_handle_t stats, stream_stats_values_t *val
 
 stream_stats_handle_t stream_stats_first();
 stream_stats_handle_t stream_stats_next(stream_stats_handle_t stats);
-
-#endif //ESP32_XBEE_STREAM_STATS_H

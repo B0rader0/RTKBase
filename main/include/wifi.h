@@ -1,5 +1,4 @@
-#ifndef ESP32_XBEE_WIFI_H
-#define ESP32_XBEE_WIFI_H
+#pragma once
 
 #include <esp_wifi.h>
 
@@ -42,4 +41,3 @@ void wait_for_network();
 const char *esp_netif_name(esp_netif_t *esp_netif);
 const char * wifi_auth_mode_name(wifi_auth_mode_t auth_mode);
 
-#endif //ESP32_XBEE_WIFI_H

@@ -1,5 +1,4 @@
-#ifndef ESP32_XBEE_NTRIP_H
-#define ESP32_XBEE_NTRIP_H
+#pragma once
 
 #define NTRIP_GENERIC_NAME "ESP32-XBee"
 #define NTRIP_CLIENT_NAME NTRIP_GENERIC_NAME "_Client"
@@ -19,5 +18,3 @@ void ntrip_caster_init();
 
 bool ntrip_response_ok(void *response);
 bool ntrip_response_sourcetable_ok(void *response);
-
-#endif //ESP32_XBEE_NTRIP_H
