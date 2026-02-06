@@ -20,7 +20,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/ringbuf.h>
 #include <string.h>
-#include <uart.h>
+#include <gps_uart.h>
 #include "log.h"
 
 #define INITIAL_MAGIC "@@@@\n"

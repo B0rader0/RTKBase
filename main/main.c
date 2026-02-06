@@ -23,17 +23,16 @@
 #include <core_dump.h>
 #include <esp_ota_ops.h>
 #include <stream_stats.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_system.h"
-#include "esp_log.h"
-#include "driver/uart.h"
-#include "driver/ledc.h"
-#include "button.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <esp_system.h>
+#include <esp_log.h>
+#include <driver/uart.h>
+#include <driver/ledc.h>
 #include "config.h"
 #include "wifi.h"
 #include "interface/socket_server.h"
-#include "uart.h"
+#include "gps_uart.h"
 #include "interface/ntrip.h"
 #include "tasks.h"
 
@@ -41,8 +40,9 @@ static const char *TAG = "MAIN";
 
 static char *reset_reason_name(esp_reset_reason_t reason);
 
+/* BAR - intend to use the official BOOT button on the board for factory reset, but it is not working reliably, so using GPIO0 instead. 
 static void reset_button_task() {
-    QueueHandle_t button_queue = button_init(PIN_BIT(GPIO_NUM_0));
+    QueueHandle_t button_queue = reset_button_init(PIN_BIT(GPIO_NUM_0));
     gpio_set_pull_mode(GPIO_NUM_0, GPIO_PULLUP_ONLY);
     while (true) {
         button_event_t button_ev;
@@ -55,6 +55,7 @@ static void reset_button_task() {
         }
     }
 }
+*/
 
 static void sntp_time_set_handler(struct timeval *tv) {
     ESP_LOGI(TAG, "Synced time from SNTP");
@@ -74,7 +75,7 @@ void app_main()
 
     core_dump_check();
 
-    xTaskCreate(reset_button_task, "reset_button", 4096, NULL, TASK_PRIORITY_RESET_BUTTON, NULL);
+    // BAR xTaskCreate(reset_button_task, "reset_button", 4096, NULL, TASK_PRIORITY_RESET_BUTTON, NULL);
 
     stream_stats_init();
 
@@ -97,9 +98,6 @@ void app_main()
     ESP_LOGI(TAG, "║ ESP-IDF: %-35s "                            "║", app_desc->idf_ver);
     ESP_LOGI(TAG, "╟──────────────────────────────────────────────╢");
     ESP_LOGI(TAG, "║ Reset reason: %-30s "                       "║", reset_reason_name(reset_reason));
-    ESP_LOGI(TAG, "╟──────────────────────────────────────────────╢");
-    ESP_LOGI(TAG, "║ Author: Nebojša Cvetković                    ║");
-    ESP_LOGI(TAG, "║ Source: https://github.com/nebkat/esp32-xbee ║");
     ESP_LOGI(TAG, "╚══════════════════════════════════════════════╝");
 
     esp_event_loop_create_default();
@@ -142,19 +140,7 @@ void app_main()
     sntp_set_time_sync_notification_cb(sntp_time_set_handler);
     esp_sntp_init(); 
 
-#ifdef DEBUG_HEAP
-    while (true) {
-        vTaskDelay(pdMS_TO_TICKS(2000));
-
-        multi_heap_info_t info;
-        heap_caps_get_info(&info, MALLOC_CAP_DEFAULT);
-
-        uart_nmea("$PESP,HEAP,FREE,%d/%d,%d%%", info.total_free_bytes,
-                info.total_allocated_bytes + info.total_free_bytes,
-                100 * info.total_free_bytes / (info.total_allocated_bytes + info.total_free_bytes));
-    }
-#endif
-}
+}  // app_main
 
 static char *reset_reason_name(esp_reset_reason_t reason) {
     switch (reason) {

@@ -23,7 +23,7 @@
 #include <protocol/nmea.h>
 #include <stream_stats.h>
 
-#include "uart.h"
+#include "gps_uart.h"
 #include "config.h"
 #include "interface/socket_server.h"
 #include "tasks.h"

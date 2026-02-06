@@ -8,7 +8,8 @@ idf_component_register(
 		"retry.c"
 		"status_led.c"
 		"stream_stats.c"
-		"uart.c"
+		"gps_uart.c"
+		"reset_button.c"
 		"util.c"
 		"web_server.c"
 		"wifi.c"
@@ -20,6 +21,7 @@ idf_component_register(
 		"protocol/nmea.c"
 	INCLUDE_DIRS 
 		"include"
+		"."
 	REQUIRES
 		"esp_wifi"
 		"espcoredump"
@@ -36,6 +38,10 @@ idf_component_register(
 		"esp_system"
 		"nvs_flash"
 		"button"
+		espressif__button
+		esp_ringbuf
+		esp_driver_ledc
+		esp_driver_uart
 )
 
 spiffs_create_partition_image(www ../www FLASH_IN_PROJECT)

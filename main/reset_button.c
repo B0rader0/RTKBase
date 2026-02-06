@@ -2,16 +2,18 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
+#include <driver/gpio.h>
+#include <esp_log.h>
+#include <esp_timer.h>
+#include <soc/soc_caps.h>
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
-#include "driver/gpio.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "soc/soc_caps.h"
+//#include "iot_button.h"
 
-#include "button.h"
+
+#include "reset_button.h"
 
 #define TAG "BUTTON"
 
@@ -100,7 +102,7 @@ static void button_task(void *pvParameter)
     }
 }
 
-QueueHandle_t button_init(unsigned long long pin_select) {
+QueueHandle_t reset_button_init(unsigned long long pin_select) {
     if (pin_count != -1) {
         ESP_LOGI(TAG, "Already initialized");
         return NULL;

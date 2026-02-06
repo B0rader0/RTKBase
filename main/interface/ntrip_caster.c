@@ -33,7 +33,7 @@
 #include "interface/ntrip.h"
 #include "config.h"
 #include "util.h"
-#include "uart.h"
+#include "gps_uart.h"
 
 static const char *TAG = "NTRIP_CASTER";
 

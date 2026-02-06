@@ -25,7 +25,6 @@
 #include <driver/gpio.h>
 #include <sys/param.h>
 #include <tasks.h>
-#include <uart.h>
 #include <status_led.h>
 #include <retry.h>
 #include <freertos/event_groups.h>
@@ -33,6 +32,7 @@
 #include <lwip/lwip_napt.h>
 #include "wifi.h"
 #include "config.h"
+#include "gps_uart.h"
 
 
 static const char *TAG = "WIFI";

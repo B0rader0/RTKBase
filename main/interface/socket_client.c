@@ -18,7 +18,7 @@
 #include <sys/param.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <uart.h>
+#include <driver/uart.h>
 #include <util.h>
 #include <status_led.h>
 #include <wifi.h>

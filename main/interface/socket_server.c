@@ -27,7 +27,7 @@
 #include "interface/socket_server.h"
 #include "status_led.h"
 #include "stream_stats.h"
-#include "uart.h"
+#include "gps_uart.h"
 #include "util.h"
 
 static const char *TAG = "SOCKET_SERVER";

@@ -11,4 +11,4 @@ typedef struct {
     uint64_t duration;
 } button_event_t;
 
-QueueHandle_t button_init(unsigned long long pin_select);
+QueueHandle_t reset_button_init(unsigned long long pin_select);

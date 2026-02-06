@@ -11,7 +11,7 @@
 #include <driver/uart.h>
 #include <esp_wifi_types.h>
 #include <driver/gpio.h>
-#include <uart.h>
+#include <gps_uart.h>
 #include <tasks.h>
 #include "config.h"
 
