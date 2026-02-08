@@ -17,12 +17,12 @@
 
 #include <driver/ledc.h>
 #include <tasks.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
-#include "freertos/semphr.h"
-// #include "freertos/xtensa_api.h"
-#include <xtensa_api.h> // new locationin IDF v5 (GN)
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
+#include <xtensa_api.h> 
+#include <esp_log.h>
 
 #include "freertos/portmacro.h"
 #include "status_led.h"
@@ -31,7 +31,6 @@
 #define LEDC_SPEED_MODE LEDC_HIGH_SPEED_MODE
 
 #define STATUS_LED_RED_GPIO CONFIG_STATUS_LED_RED_GPIO
-// #define STATUS_LED_RED_GPIO GPIO_NUM_21 // (GN)
 #define STATUS_LED_GREEN_GPIO CONFIG_STATUS_LED_GREEN_GPIO
 #define STATUS_LED_BLUE_GPIO CONFIG_STATUS_LED_BLUE_GPIO
 
@@ -51,10 +50,6 @@
 static SLIST_HEAD(status_led_color_list_t, status_led_color_t) status_led_colors_list;
 
 static TaskHandle_t led_task;
-
-// void status_led_clear()
-// {
-// } // not needed (GN)
 
 status_led_handle_t status_led_add(uint32_t rgba, status_led_flashing_mode_t flashing_mode, uint32_t interval, uint32_t duration, uint8_t expire) {
     uint8_t red = (rgba >> 24u) & 0xFFu;

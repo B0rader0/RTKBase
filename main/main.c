@@ -35,6 +35,7 @@
 #include "gps_uart.h"
 #include "interface/ntrip.h"
 #include "tasks.h"
+#include "reset_button.h"
 
 static const char *TAG = "MAIN";
 
@@ -63,20 +64,33 @@ static void sntp_time_set_handler(struct timeval *tv) {
 
 void app_main()
 {
+    esp_log_level_set(TAG, ESP_LOG_INFO);
+    
     status_led_init(); 
     status_led_handle_t status_led = status_led_add(0xFFFFFF33, STATUS_LED_FADE, 250, 2500, 0);
-
+     
     log_init();
-    esp_log_set_vprintf(log_vprintf);
+        
+    // BUG: (and hence commented out)
+    // Redirect ESP-IDF logs to our custom log implementation, which forwards them to UART and WebSocket clients
+    // This is a bug, because it is not yet known what to redirect to
+    //esp_log_set_vprintf(log_vprintf);
+    
     esp_log_level_set("gpio", ESP_LOG_WARN);
     esp_log_level_set("system_api", ESP_LOG_WARN);
     esp_log_level_set("wifi", ESP_LOG_WARN);
     esp_log_level_set("esp_netif_handlers", ESP_LOG_WARN);
-
+    esp_log_level_set("reset_button", ESP_LOG_DEBUG);
+    
     core_dump_check();
 
-    // BAR xTaskCreate(reset_button_task, "reset_button", 4096, NULL, TASK_PRIORITY_RESET_BUTTON, NULL);
-
+    
+    // Registers a handler for the BOOT button for resetting the parameters to factory defaults. 
+    // When the button held down for more than BTN_LONG_PRESS and then released, the NVM storage is 
+    // cleared and the device restarts. 
+    // The idea to use the built LED does not work because the LED is not controllable.
+    reset_button_init();
+ 
     stream_stats_init();
 
     config_init();

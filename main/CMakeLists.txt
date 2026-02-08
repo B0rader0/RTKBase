@@ -21,27 +21,27 @@ idf_component_register(
 		"protocol/nmea.c"
 	INCLUDE_DIRS 
 		"include"
-		"."
 	REQUIRES
-		"esp_wifi"
-		"espcoredump"
-		"tcp_transport"
-		"app_update"
-		"esp_http_server"
-		"json"
-		"spiffs"
-		"esp_timer"
-		"lwip"
-		"esp_netif"
-		"freertos"
-		"esp_event"
-		"esp_system"
-		"nvs_flash"
-		"button"
+		esp_wifi
+		espcoredump
+		tcp_transport
+		app_update
+		esp_http_server
+		json
+		spiffs
+		esp_timer
+		lwip
+		esp_netif
+		freertos
+		esp_event
+		esp_system
+		nvs_flash
+		button
 		espressif__button
 		esp_ringbuf
 		esp_driver_ledc
 		esp_driver_uart
+		esp_pm
 )
 
 spiffs_create_partition_image(www ../www FLASH_IN_PROJECT)

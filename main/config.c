@@ -197,36 +197,33 @@ const config_item_t CONFIG_ITEMS[] = {
         },
 
         // UART
+        // Do not use UART_NUM0 and GPIO_NUM_1 and GPIO_NUM_3 as default TX and RX pins, as they are used for logging. 
+        // Additionally, the board cannot be flashed if the GPS module is soldered
+        // Usin UART_NUM1 but the defult pins need to be redefined as they are connected to flas
         {
                 .key = KEY_CONFIG_UART_NUM,
                 .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = CONFIG_UART_PORT // (GN)
-                // .def.uint8 = UART_NUM_0
+                .def.uint8 = UART_NUM_1
         }, {
                 .key = KEY_CONFIG_UART_TX_PIN,
                 .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = CONFIG_UART_TX_GPIO // (GN)
-                // .def.uint8 = GPIO_NUM_1
+                .def.uint8 = GPIO_NUM_1
         }, {
                 .key = KEY_CONFIG_UART_RX_PIN,
                 .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = CONFIG_UART_RX_GPIO // (GN)
-                // .def.uint8 = GPIO_NUM_3
+                .def.uint8 = GPIO_NUM_3
         }, {
                 .key = KEY_CONFIG_UART_RTS_PIN,
                 .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = CONFIG_UART_RTS_GPIO // (GN)
-                // .def.uint8 = GPIO_NUM_14
+                .def.uint8 = GPIO_NUM_14
         }, {
                 .key = KEY_CONFIG_UART_CTS_PIN,
                 .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = CONFIG_UART_CTS_GPIO // (GN)
-                // .def.uint8 = GPIO_NUM_33
+                .def.uint8 = GPIO_NUM_33
         }, {
                 .key = KEY_CONFIG_UART_BAUD_RATE,
                 .type = TYPE_CONFIG_ITEM_UINT32,
-                .def.uint32 = CONFIG_UART_BAUD_RATE // (GN)
-                // .def.uint32 = 115200
+                .def.uint32 = 115200
         }, {
                 .key = KEY_CONFIG_UART_DATA_BITS,
                 .type = TYPE_CONFIG_ITEM_INT8,
