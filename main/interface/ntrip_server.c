@@ -21,7 +21,6 @@
 #include <sys/socket.h>
 #include <wifi.h>
 #include <tasks.h>
-#include <status_led.h>
 #include <retry.h>
 #include <stream_stats.h>
 #include <freertos/event_groups.h>
@@ -44,7 +43,7 @@ static int sock = -1;
 static int data_keep_alive;
 static EventGroupHandle_t server_event_group;
 
-static status_led_handle_t status_led = NULL;
+//static status_led_handle_t status_led = NULL;
 static stream_stats_handle_t stream_stats = NULL;
 
 static TaskHandle_t server_task = NULL;
@@ -95,10 +94,6 @@ static void ntrip_server_task(void *ctx) {
     server_event_group = xEventGroupCreate();
     uart_register_read_handler(ntrip_server_uart_handler);
     xTaskCreate(ntrip_server_sleep_task, "ntrip_server_sleep_task", 2048, NULL, TASK_PRIORITY_INTERFACE, &sleep_task);
-
-    config_color_t status_led_color = config_get_color(CONF_ITEM(KEY_CONFIG_NTRIP_SERVER_COLOR));
-    if (status_led_color.rgba != 0) status_led = status_led_add(status_led_color.rgba, STATUS_LED_FADE, 500, 2000, 0);
-    if (status_led != NULL) status_led->active = false;
 
     stream_stats = stream_stats_new("ntrip_server");
 
@@ -162,8 +157,6 @@ static void ntrip_server_task(void *ctx) {
 
         retry_reset(delay_handle);
 
-        if (status_led != NULL) status_led->active = true;
-
         // Connected
         xEventGroupSetBits(server_event_group, CASTER_READY_BIT);
 
@@ -172,8 +165,6 @@ static void ntrip_server_task(void *ctx) {
 
         // Disconnected
         xEventGroupClearBits(server_event_group, CASTER_READY_BIT | DATA_SENT_BIT);
-
-        if (status_led != NULL) status_led->active = false;
 
         ESP_LOGW(TAG, "Disconnected from %s:%d/%s", host, port, mountpoint);
         uart_nmea("$PESP,NTRIP,SRV,DISCONNECTED,%s:%d,%s", host, port, mountpoint);

@@ -20,7 +20,6 @@
 #include <freertos/task.h>
 #include <driver/uart.h>
 #include <util.h>
-#include <status_led.h>
 #include <wifi.h>
 #include <esp_log.h>
 #include <sys/socket.h>
@@ -37,7 +36,7 @@ static const char *TAG = "SOCKET_CLIENT";
 
 static int sock = -1;
 
-static status_led_handle_t status_led = NULL;
+//static status_led_handle_t status_led = NULL;
 static stream_stats_handle_t stream_stats = NULL;
 
 static void socket_client_uart_handler(void* handler_args, esp_event_base_t base, int32_t length, void* buffer) {
@@ -51,10 +50,6 @@ static void socket_client_uart_handler(void* handler_args, esp_event_base_t base
 
 static void socket_client_task(void *ctx) {
     uart_register_read_handler(socket_client_uart_handler);
-
-    config_color_t status_led_color = config_get_color(CONF_ITEM(KEY_CONFIG_SOCKET_CLIENT_COLOR));
-    if (status_led_color.rgba != 0) status_led = status_led_add(status_led_color.rgba, STATUS_LED_FADE, 500, 2000, 0);
-    if (status_led != NULL) status_led->active = false;
 
     stream_stats = stream_stats_new("socket_client");
 
@@ -86,8 +81,6 @@ static void socket_client_task(void *ctx) {
 
         retry_reset(delay_handle);
 
-        if (status_led != NULL) status_led->active = true;
-
         char *buffer = malloc(BUFFER_SIZE);
 
         int len;
@@ -98,8 +91,6 @@ static void socket_client_task(void *ctx) {
         }
 
         free(buffer);
-
-        if (status_led != NULL) status_led->active = false;
 
         ESP_LOGW(TAG, "Disconnected from %s:%d: %d %s", host, port, errno, strerror(errno));
         uart_nmea("$PESP,SOCK,CLI,%s,DISCONNECTED,%s:%d", SOCKTYPE_NAME(socktype), host, port);

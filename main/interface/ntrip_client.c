@@ -47,7 +47,6 @@ static TaskHandle_t nmea_gga_send_task = NULL;
 
 static EventGroupHandle_t client_event_group;
 
-static status_led_handle_t status_led = NULL;
 static stream_stats_handle_t stream_stats = NULL;
 
 static char nmea_gga_latest[128] = "";
@@ -89,21 +88,11 @@ static void ntrip_client_uart_handler(void* handler_args, esp_event_base_t base,
 
     nmea_gga_extract(length, buffer);
 
-    /*int sent = send(sock, buffer, length, 0);
-    if (sent < 0) {
-        destroy_socket(&sock);
-    } else {
-        stream_stats_increment(stream_stats, 0, sent);
-    }*/
 }
 
 static void ntrip_client_task(void *ctx) {
     client_event_group = xEventGroupCreate();
     uart_register_read_handler(ntrip_client_uart_handler);
-
-    config_color_t status_led_color = config_get_color(CONF_ITEM(KEY_CONFIG_NTRIP_CLIENT_COLOR));
-    if (status_led_color.rgba != 0) status_led = status_led_add(status_led_color.rgba, STATUS_LED_FADE, 500, 2000, 0);
-    if (status_led != NULL) status_led->active = false;
 
     stream_stats = stream_stats_new("ntrip_client");
 
@@ -167,8 +156,6 @@ static void ntrip_client_task(void *ctx) {
 
         retry_reset(delay_handle);
 
-        if (status_led != NULL) status_led->active = true;
-
         // Start sending GGA to caster
         xTaskCreate(ntrip_client_nmea_gga_send_task, "ntrip_client_gga", 2048, NULL, TASK_PRIORITY_INTERFACE, &nmea_gga_send_task);
 
@@ -187,8 +174,6 @@ static void ntrip_client_task(void *ctx) {
 
         // Stop sending GGA to caster
         vTaskDelete(nmea_gga_send_task);
-
-        if (status_led != NULL) status_led->active = false;
 
         ESP_LOGW(TAG, "Disconnected from %s:%d/%s", host, port, mountpoint);
         uart_nmea("$PESP,NTRIP,CLI,DISCONNECTED,%s:%d,%s", host, port, mountpoint);

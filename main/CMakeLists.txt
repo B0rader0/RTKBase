@@ -6,7 +6,6 @@ idf_component_register(
 		"log.c"
 		"interface/ntrip_util.c"
 		"retry.c"
-		"status_led.c"
 		"stream_stats.c"
 		"gps_uart.c"
 		"reset_button.c"

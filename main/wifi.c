@@ -25,7 +25,6 @@
 #include <driver/gpio.h>
 #include <sys/param.h>
 #include <tasks.h>
-#include <status_led.h>
 #include <retry.h>
 #include <freertos/event_groups.h>
 #include <esp_netif_ip_addr.h>
@@ -33,7 +32,6 @@
 #include "wifi.h"
 #include "config.h"
 #include "gps_uart.h"
-
 
 static const char *TAG = "WIFI";
 
@@ -44,9 +42,6 @@ const int WIFI_AP_STA_CONNECTED_BIT = BIT2;
 
 static TaskHandle_t sta_status_task = NULL;
 static TaskHandle_t sta_reconnect_task = NULL;
-
-static status_led_handle_t status_led_ap;
-static status_led_handle_t status_led_sta;
 
 static wifi_config_t config_ap;
 static wifi_config_t config_sta;
@@ -62,25 +57,6 @@ static wifi_sta_list_t ap_sta_list;
 
 static esp_netif_t *esp_netif_ap;
 static esp_netif_t *esp_netif_sta;
-
-static void wifi_sta_status_task(void *ctx) {
-    uint8_t rssi_duty = 0;
-    while (true) {
-        sta_connected = esp_wifi_sta_get_ap_info(&sta_ap_info) == ESP_OK;
-
-        if (sta_connected) {
-            float rssi_percentage = ((float) sta_ap_info.rssi + 90.0f) / 60.0f;
-            rssi_percentage = MAX(0, MIN(1, rssi_percentage));
-            rssi_duty = powf(rssi_percentage, 3) * 255;
-        } else {
-            rssi_duty = 0;
-        }
-
-        rssi_led_fade(rssi_duty, 100);
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
 
 static void wifi_sta_reconnect_task(void *ctx) {
     while (true) {
@@ -126,7 +102,6 @@ static void handle_sta_connected(void *esp_netif, esp_event_base_t base, int32_t
     // No longer attempting to reconnect
     if (sta_reconnect_task != NULL) vTaskSuspend(sta_reconnect_task);
 
-    if (status_led_sta != NULL) status_led_sta->flashing_mode = STATUS_LED_FADE;
 }
 
 static void handle_sta_disconnected(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
@@ -158,13 +133,10 @@ static void handle_sta_disconnected(void *esp_netif, esp_event_base_t base, int3
     // Attempting to reconnect
     if (sta_reconnect_task != NULL) vTaskResume(sta_reconnect_task);
 
-    // Disable RSSI led
-    rssi_led_set(0);
-
     xEventGroupClearBits(wifi_event_group, WIFI_STA_GOT_IPV4_BIT);
     xEventGroupClearBits(wifi_event_group, WIFI_STA_GOT_IPV6_BIT);
 
-    if (status_led_sta != NULL) status_led_sta->flashing_mode = STATUS_LED_STATIC;
+    //if (status_led_sta != NULL) status_led_sta->flashing_mode = STATUS_LED_STATIC;
 }
 
 static void handle_sta_auth_mode_change(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
@@ -203,7 +175,7 @@ static void handle_ap_sta_connected(void *esp_netif, esp_event_base_t base, int3
 
     xEventGroupSetBits(wifi_event_group, WIFI_AP_STA_CONNECTED_BIT);
 
-    if (status_led_ap != NULL) status_led_ap->flashing_mode = STATUS_LED_FADE;
+    //if (status_led_ap != NULL) status_led_ap->flashing_mode = STATUS_LED_FADE;
 }
 
 static void handle_ap_sta_disconnected(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
@@ -216,7 +188,6 @@ static void handle_ap_sta_disconnected(void *esp_netif, esp_event_base_t base, i
     if (ap_sta_list.num == 0) {
         xEventGroupClearBits(wifi_event_group, WIFI_AP_STA_CONNECTED_BIT);
 
-        if (status_led_ap != NULL) status_led_ap->flashing_mode = STATUS_LED_STATIC;
     }
 }
 
@@ -404,8 +375,6 @@ void wifi_init() {
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config_ap));
         ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20));
 
-        config_color_t ap_led_color = config_get_color(CONF_ITEM(KEY_CONFIG_WIFI_AP_COLOR));
-        if (ap_led_color.rgba != 0) status_led_ap = status_led_add(ap_led_color.rgba, STATUS_LED_STATIC, 500, 2000, 0);
     }
 
     // STA
@@ -430,16 +399,10 @@ void wifi_init() {
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config_sta));
         ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20));
 
-        // Keep track of connection for RSSI indicator, but suspend until connected
-        xTaskCreate(wifi_sta_status_task, "wifi_sta_status", 2048, NULL, TASK_PRIORITY_WIFI_STATUS, &sta_status_task);
-        vTaskSuspend(sta_status_task);
-
         // Reconnect when disconnected
         xTaskCreate(wifi_sta_reconnect_task, "wifi_sta_reconnect", 4096, NULL, TASK_PRIORITY_WIFI_STATUS, &sta_reconnect_task);
         vTaskSuspend(sta_reconnect_task);
 
-        config_color_t sta_led_color = config_get_color(CONF_ITEM(KEY_CONFIG_WIFI_STA_COLOR));
-        if (sta_led_color.rgba != 0) status_led_sta = status_led_add(sta_led_color.rgba, STATUS_LED_STATIC, 500, 2000, 0);
     }
 
     ESP_ERROR_CHECK(esp_wifi_start());

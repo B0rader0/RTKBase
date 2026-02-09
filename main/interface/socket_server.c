@@ -25,10 +25,12 @@
 
 #include "config.h"
 #include "interface/socket_server.h"
-#include "status_led.h"
 #include "stream_stats.h"
 #include "gps_uart.h"
 #include "util.h"
+
+#include "status_led.h" //when removed generates a pile of errors, no idea why
+
 
 static const char *TAG = "SOCKET_SERVER";
 
@@ -37,7 +39,7 @@ static const char *TAG = "SOCKET_SERVER";
 static int sock_tcp, sock_udp;
 static char *buffer;
 
-static status_led_handle_t status_led = NULL;
+//static status_led_handle_t status_led = NULL;
 static stream_stats_handle_t stream_stats = NULL;
 
 typedef struct socket_client_t {
@@ -78,8 +80,6 @@ static socket_client_t * socket_client_add(int sock, struct sockaddr_in6 addr, i
     ESP_LOGI(TAG, "Accepted %s client %s", SOCKTYPE_NAME(socktype), addr_str);
     uart_nmea("$PESP,SOCK,SRV,%s,CONNECTED,%s", SOCKTYPE_NAME(socktype), addr_str);
 
-    if (status_led != NULL) status_led->flashing_mode = STATUS_LED_FADE;
-
     return client;
 }
 
@@ -93,7 +93,6 @@ static void socket_client_remove(socket_client_t *socket_client) {
     SLIST_REMOVE(&socket_client_list, socket_client, socket_client_t, next);
     free(socket_client);
 
-    if (status_led != NULL && SLIST_EMPTY(&socket_client_list)) status_led->flashing_mode = STATUS_LED_STATIC;
 }
 
 static void socket_server_uart_handler(void* handler_args, esp_event_base_t base, int32_t length, void* buf) {
@@ -244,9 +243,6 @@ static void socket_clients_receive(fd_set *socket_set) {
 
 static void socket_server_task(void *ctx) {
     uart_register_read_handler(socket_server_uart_handler);
-
-    config_color_t status_led_color = config_get_color(CONF_ITEM(KEY_CONFIG_SOCKET_SERVER_COLOR));
-    if (status_led_color.rgba != 0) status_led = status_led_add(status_led_color.rgba, STATUS_LED_STATIC, 500, 2000, 0);
 
     stream_stats = stream_stats_new("socket_server");
 

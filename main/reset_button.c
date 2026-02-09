@@ -17,8 +17,6 @@
 //#include <nvs.h>        // For reading/writing actual data (keys and values)
 #include "status_led.h"
 
-static const char *TAG = "reset_button";
-
 /* 
 *  Most development boards have "boot" button attached to GPIO0.
 *  You can also change this to another pin.
