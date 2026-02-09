@@ -17,17 +17,15 @@
 
 #include <stdbool.h>
 #include <esp_log.h>
-// #include <esp_event_base.h>
 #include <esp_event.h>      // prefer esp_event.h over esp_event_base.h (GN)
 #include <sys/socket.h>     // socket(), accept(), struct sockaddr (not GN)
 #include <netinet/in.h>     // struct sockaddr_in / sockaddr_in6, htons/ntohs (GN)
 #include <arpa/inet.h>      // inet_ntop/inet_pton (if you use them) (GN)
-
+#include <sys/queue.h>
 
 
 #include <mdns.h>
 #include <tasks.h>
-#include <status_led.h>
 #include <stream_stats.h>
 #include <esp_ota_ops.h>
 #include "interface/ntrip.h"

@@ -21,6 +21,7 @@
 #include <lwip/sockets.h>
 #include <string.h>
 #include <sys/param.h>
+#include <sys/queue.h>
 #include <tasks.h>
 
 #include "config.h"
@@ -28,9 +29,6 @@
 #include "stream_stats.h"
 #include "gps_uart.h"
 #include "util.h"
-
-#include "status_led.h" //when removed generates a pile of errors, no idea why
-
 
 static const char *TAG = "SOCKET_SERVER";
 
