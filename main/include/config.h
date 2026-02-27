@@ -1,116 +1,92 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdbool.h>
+#include <nvs_flash.h>
+#include <cJSON.h>
 
-typedef enum {
-    TYPE_CONFIG_ITEM_BOOL = 0,
-    TYPE_CONFIG_ITEM_INT8,
-    TYPE_CONFIG_ITEM_INT16,
-    TYPE_CONFIG_ITEM_INT32,
-    TYPE_CONFIG_ITEM_INT64,
-    TYPE_CONFIG_ITEM_UINT8,
-    TYPE_CONFIG_ITEM_UINT16,
-    TYPE_CONFIG_ITEM_UINT32,
-    TYPE_CONFIG_ITEM_UINT64,
-    TYPE_CONFIG_ITEM_STRING,
-    TYPE_CONFIG_ITEM_BLOB,
-    TYPE_CONFIG_ITEM_COLOR,
-    TYPE_CONFIG_ITEM_IP,
-    TYPE_CONFIG_ITEM_MAX
+typedef enum
+{
+    TYPE_CFG_ITEM_BOOL = 0, 
+    TYPE_CFG_ITEM_INT8,
+    TYPE_CFG_ITEM_UINT8,
+    TYPE_CFG_ITEM_UINT16,
+    TYPE_CFG_ITEM_UINT32,
+    TYPE_CFG_ITEM_STR,
+    TYPE_CFG_ITEM_SECRET_STR, // not to send to the WEB UI1
+    TYPE_CFG_ITEM_IP
 } config_item_type_t;
 
-typedef union {
-    struct values {
-        uint8_t alpha;
-        uint8_t blue;
-        uint8_t green;
-        uint8_t red;
-    } values;
-    uint32_t rgba;
-} config_color_t;
-
-typedef union {
-    bool bool1;
-    int8_t int8;
-    int16_t int16;
-    int32_t int32;
-    int64_t int64;
-    uint8_t uint8;
+typedef union
+{
+    bool     enabled;
+    int8_t   int8;
+    uint8_t  uint8;
     uint16_t uint16;
     uint32_t uint32;
-    uint64_t uint64;
-    config_color_t color;
     char *str;
-    struct blob {
-        uint8_t *data;
-        size_t length;
-    } blob;
-
 } config_item_value_t;
+
+#define CONFIG_PREFERENCES "config" // NVS namespace for configuration values
 
 // Structure defining a configuration item as a key-value pair with type and default value
 // The actual keys and defauld values are defined in an array in config.c
 // The modified values are stored in NVS
-typedef struct config_item {
+typedef struct config_item
+{
     char *key;
     config_item_type_t type;
-    bool secret;
     config_item_value_t def;
 } config_item_t;
 
-#define CONFIG_VALUE_UNCHANGED "\x1a\x1a\x1a\x1a\x1a\x1a\x1a\x1a"
+#define CFG_VALUE_UNCHANGED "\x1a\x1a\x1a\x1a\x1a\x1a\x1a\x1a"
 
 // All keys of all properties that can be configured
 // The strings need to correspond to the JSON keys used in the web interface
-// Admin - username, password and whether to use authentication
+// Web server admin access - username, password and whether to use authentication
 #define KEY_CONFIG_ADMIN_USERNAME "adm_user"
 #define KEY_CONFIG_ADMIN_PASSWORD "adm_pass"
 #define KEY_CONFIG_ADMIN_AUTH     "adm_auth"
 
 // Bluetooth
-#define KEY_CONFIG_BLUETOOTH_ACTIVE              "bt_active"
-#define KEY_CONFIG_BLUETOOTH_DEVICE_NAME         "bt_dev_name"
+#define KEY_CONFIG_BLUETOOTH_ACTIVE "bt_active"
+#define KEY_CONFIG_BLUETOOTH_DEVICE_NAME "bt_dev_name"
 #define KEY_CONFIG_BLUETOOTH_DEVICE_DISCOVERABLE "bt_dev_vis"
-#define KEY_CONFIG_BLUETOOTH_PIN_CODE            "bt_pin_code"
+#define KEY_CONFIG_BLUETOOTH_PIN_CODE "bt_pin_code"
 
 // NTRIP Server
-#define KEY_CONFIG_NTRIP_SERVER_ACTIVE     "ntr_srv_active"
-#define KEY_CONFIG_NTRIP_SERVER_COLOR      "ntr_srv_color"
-#define KEY_CONFIG_NTRIP_SERVER_HOST       "ntr_srv_host"
-#define KEY_CONFIG_NTRIP_SERVER_PORT       "ntr_srv_port"
+#define KEY_CONFIG_NTRIP_SERVER_ACTIVE "ntr_srv_active"
+#define KEY_CONFIG_NTRIP_SERVER_HOST "ntr_srv_host"
+#define KEY_CONFIG_NTRIP_SERVER_PORT "ntr_srv_port"
 #define KEY_CONFIG_NTRIP_SERVER_MOUNTPOINT "ntr_srv_mp"
-#define KEY_CONFIG_NTRIP_SERVER_USERNAME   "ntr_srv_user"
-#define KEY_CONFIG_NTRIP_SERVER_PASSWORD   "ntr_srv_pass"
+#define KEY_CONFIG_NTRIP_SERVER_USERNAME "ntr_srv_user"
+#define KEY_CONFIG_NTRIP_SERVER_PASSWORD "ntr_srv_pass"
 
 // NTRIP Client
-#define KEY_CONFIG_NTRIP_CLIENT_ACTIVE     "ntr_cli_active"
-#define KEY_CONFIG_NTRIP_CLIENT_COLOR      "ntr_cli_color"
-#define KEY_CONFIG_NTRIP_CLIENT_HOST       "ntr_cli_host"
-#define KEY_CONFIG_NTRIP_CLIENT_PORT       "ntr_cli_port"
+#define KEY_CONFIG_NTRIP_CLIENT_ACTIVE "ntr_cli_active"
+#define KEY_CONFIG_NTRIP_CLIENT_HOST "ntr_cli_host"
+#define KEY_CONFIG_NTRIP_CLIENT_PORT "ntr_cli_port"
 #define KEY_CONFIG_NTRIP_CLIENT_MOUNTPOINT "ntr_cli_mp"
-#define KEY_CONFIG_NTRIP_CLIENT_USERNAME   "ntr_cli_user"
-#define KEY_CONFIG_NTRIP_CLIENT_PASSWORD   "ntr_cli_pass"
+#define KEY_CONFIG_NTRIP_CLIENT_USERNAME "ntr_cli_user"
+#define KEY_CONFIG_NTRIP_CLIENT_PASSWORD "ntr_cli_pass"
 
 // NTRIP Caster
-#define KEY_CONFIG_NTRIP_CASTER_ACTIVE     "ntr_cst_active"
-#define KEY_CONFIG_NTRIP_CASTER_COLOR      "ntr_cst_color"
-#define KEY_CONFIG_NTRIP_CASTER_PORT       "ntr_cst_port"
+#define KEY_CONFIG_NTRIP_CASTER_ACTIVE "ntr_cst_active"
+#define KEY_CONFIG_NTRIP_CASTER_PORT "ntr_cst_port"
 #define KEY_CONFIG_NTRIP_CASTER_MOUNTPOINT "ntr_cst_mp"
-#define KEY_CONFIG_NTRIP_CASTER_USERNAME   "ntr_cst_user"
-#define KEY_CONFIG_NTRIP_CASTER_PASSWORD   "ntr_cst_pass"
+#define KEY_CONFIG_NTRIP_CASTER_USERNAME "ntr_cst_user"
+#define KEY_CONFIG_NTRIP_CASTER_PASSWORD "ntr_cst_pass"
 
 // Socket Server
-#define KEY_CONFIG_SOCKET_SERVER_ACTIVE    "sck_srv_active"
-#define KEY_CONFIG_SOCKET_SERVER_COLOR     "sck_srv_color"
-#define KEY_CONFIG_SOCKET_SERVER_TCP_PORT  "sck_srv_t_port"
-#define KEY_CONFIG_SOCKET_SERVER_UDP_PORT  "sck_srv_u_port"
+#define KEY_CONFIG_SOCKET_SERVER_ACTIVE "sck_srv_active"
+#define KEY_CONFIG_SOCKET_SERVER_TCP_PORT "sck_srv_t_port"
+#define KEY_CONFIG_SOCKET_SERVER_UDP_PORT "sck_srv_u_port"
 
 // Socket Client
-#define KEY_CONFIG_SOCKET_CLIENT_ACTIVE          "sck_cli_active"
-#define KEY_CONFIG_SOCKET_CLIENT_COLOR           "sck_cli_color"
-#define KEY_CONFIG_SOCKET_CLIENT_HOST            "sck_cli_host"
-#define KEY_CONFIG_SOCKET_CLIENT_PORT            "sck_cli_port"
-#define KEY_CONFIG_SOCKET_CLIENT_TYPE_TCP_UDP    "sck_cli_type"
+#define KEY_CONFIG_SOCKET_CLIENT_ACTIVE "sck_cli_active"
+#define KEY_CONFIG_SOCKET_CLIENT_HOST "sck_cli_host"
+#define KEY_CONFIG_SOCKET_CLIENT_PORT "sck_cli_port"
+#define KEY_CONFIG_SOCKET_CLIENT_TYPE_TCP_UDP "sck_cli_type"
 #define KEY_CONFIG_SOCKET_CLIENT_CONNECT_MESSAGE "sck_cli_msg"
 
 // UART
@@ -128,65 +104,34 @@ typedef struct config_item {
 #define KEY_CONFIG_UART_LOG_FORWARD "uart_log_fwd"
 
 // WiFi AP (access point)
-#define KEY_CONFIG_WIFI_AP_ACTIVE "w_ap_active"
-#define KEY_CONFIG_WIFI_AP_COLOR "w_ap_color"
-#define KEY_CONFIG_WIFI_AP_SSID "w_ap_ssid"
+#define KEY_CONFIG_WIFI_AP_ACTIVE      "w_ap_active"
+#define KEY_CONFIG_WIFI_AP_SSID        "w_ap_ssid"
 #define KEY_CONFIG_WIFI_AP_SSID_HIDDEN "w_ap_ssid_hid"
-#define KEY_CONFIG_WIFI_AP_AUTH_MODE "w_ap_auth_mode"
-#define KEY_CONFIG_WIFI_AP_PASSWORD "w_ap_pass"
-#define KEY_CONFIG_WIFI_AP_GATEWAY "w_ap_gw"
-#define KEY_CONFIG_WIFI_AP_SUBNET "w_ap_subnet"
+#define KEY_CONFIG_WIFI_AP_AUTH_MODE   "w_ap_auth_mode"
+#define KEY_CONFIG_WIFI_AP_PASSWORD    "w_ap_pass"
+#define KEY_CONFIG_WIFI_AP_GATEWAY     "w_ap_gw"
+#define KEY_CONFIG_WIFI_AP_SUBNET      "w_ap_subnet"
 
 // WiFi STA (station)
-#define KEY_CONFIG_WIFI_STA_ACTIVE "w_sta_active"
-#define KEY_CONFIG_WIFI_STA_COLOR "w_sta_color"
-#define KEY_CONFIG_WIFI_STA_SSID "w_sta_ssid"
-#define KEY_CONFIG_WIFI_STA_PASSWORD "w_sta_pass"
+#define KEY_CONFIG_WIFI_STA_ACTIVE        "w_sta_active"
+#define KEY_CONFIG_WIFI_STA_SSID          "w_sta_ssid"
+#define KEY_CONFIG_WIFI_STA_PASSWORD      "w_sta_pass"
 #define KEY_CONFIG_WIFI_STA_SCAN_MODE_ALL "w_sta_scan_mode"
-#define KEY_CONFIG_WIFI_STA_AP_FORWARD "w_sta_ap_fwd"
-#define KEY_CONFIG_WIFI_STA_STATIC "w_sta_static"
-#define KEY_CONFIG_WIFI_STA_IP "w_sta_ip"
-#define KEY_CONFIG_WIFI_STA_GATEWAY "w_sta_gw"
-#define KEY_CONFIG_WIFI_STA_SUBNET "w_sta_subnet"
-#define KEY_CONFIG_WIFI_STA_DNS_A "w_sta_dns_a"
-#define KEY_CONFIG_WIFI_STA_DNS_B "w_sta_dns_b"
+#define KEY_CONFIG_WIFI_STA_AP_FORWARD    "w_sta_ap_fwd"
+#define KEY_CONFIG_WIFI_STA_STATIC        "w_sta_static"
+#define KEY_CONFIG_WIFI_STA_IP            "w_sta_ip"
+#define KEY_CONFIG_WIFI_STA_GATEWAY       "w_sta_gw"
+#define KEY_CONFIG_WIFI_STA_SUBNET        "w_sta_subnet"
+#define KEY_CONFIG_WIFI_STA_DNS_A         "w_sta_dns_a"
+#define KEY_CONFIG_WIFI_STA_DNS_B         "w_sta_dns_b"
 
-esp_err_t config_init();
-esp_err_t config_reset();
+esp_err_t cfg_init();
+esp_err_t cfg_to_json(cJSON *root);
+esp_err_t cfg_json_to_nvs(cJSON *root);
+esp_err_t cfg_get_str(const char* key, char** out_value);  
+esp_err_t cfg_get_i8(const char* key, int8_t* out_value);
+esp_err_t cfg_get_u8(const char* key, uint8_t* out_value);
+esp_err_t cfg_get_u32(const char* key, uint32_t* out_value);
 
-const config_item_t *config_items_get(int *count);
-const config_item_t * config_get_item(const char *key);
-
-#define CONF_ITEM( key ) config_get_item(key)
-
-bool config_get_bool1(const config_item_t *item);
-int8_t config_get_i8(const config_item_t *item);
-int16_t config_get_i16(const config_item_t *item);
-int32_t config_get_i32(const config_item_t *item);
-int64_t config_get_i64(const config_item_t *item);
-uint8_t config_get_u8(const config_item_t *item);
-uint16_t config_get_u16(const config_item_t *item);
-uint32_t config_get_u32(const config_item_t *item);
-uint64_t config_get_u64(const config_item_t *item);
-config_color_t config_get_color(const config_item_t *item);
-
-esp_err_t config_set(const config_item_t *item, void *value);
-esp_err_t config_set_bool1(const char *key, bool value);
-esp_err_t config_set_i8(const char *key, int8_t value);
-esp_err_t config_set_i16(const char *key, int16_t value);
-esp_err_t config_set_i32(const char *key, int32_t value);
-esp_err_t config_set_i64(const char *key, int64_t value);
-esp_err_t config_set_u8(const char *key, uint8_t value);
-esp_err_t config_set_u16(const char *key, uint16_t value);
-esp_err_t config_set_u32(const char *key, uint32_t value);
-esp_err_t config_set_u64(const char *key, uint64_t value);
-esp_err_t config_set_color(const char *key, config_color_t value);
-esp_err_t config_set_str(const char *key, char *value);
-esp_err_t config_set_blob(const char *key, char *value, size_t length);
-
-esp_err_t config_get_str_blob_alloc(const config_item_t *item, void **out_value);
-esp_err_t config_get_str_blob(const config_item_t *item, void *out_value, size_t *length);
-esp_err_t config_get_primitive(const config_item_t *item, void *out_value);
-
-esp_err_t config_commit();
-void config_restart();
+void cfg_reset_restart();
+void cfg_commit();

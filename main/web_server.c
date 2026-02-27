@@ -472,72 +472,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     const esp_app_desc_t *app_desc = esp_app_get_description(); // new for IDF v5 (GN)
     cJSON_AddStringToObject(root, "version", app_desc->version);
 
-    int config_item_count;
-    const config_item_t *config_items = config_items_get(&config_item_count);
-    for (int i = 0; i < config_item_count; i++) {
-        const config_item_t *item = &config_items[i];
-
-        int64_t int64 = 0;
-        uint64_t uint64 = 0;
-
-        size_t length = 0;
-        char *string = NULL;
-
-        config_color_t color;
-        esp_ip4_addr_t ip;
-
-        switch (item->type) {
-            case TYPE_CONFIG_ITEM_STRING:
-            case TYPE_CONFIG_ITEM_BLOB:
-                // Get length
-                ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_str_blob(item, NULL, &length));
-                string = calloc(1, length + 1);
-
-                // Get value
-                ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_str_blob(item, string, &length));
-                string[length] = '\0';
-                break;
-            case TYPE_CONFIG_ITEM_COLOR:
-                // Convert to hex
-                ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_primitive(item, &color));
-                asprintf(&string, "#%02x%02x%02x", color.values.red, color.values.green, color.values.blue);
-                break;
-            case TYPE_CONFIG_ITEM_IP:
-                ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_primitive(item, &ip));
-                cJSON *ip_parts = cJSON_AddArrayToObject(root, item->key);
-                for (int b = 0; b < 4; b++) {
-                    cJSON_AddItemToArray(ip_parts, cJSON_CreateNumber(esp_ip4_addr_get_byte(&ip, b)));
-                }
-
-                break;
-            case TYPE_CONFIG_ITEM_UINT8:
-            case TYPE_CONFIG_ITEM_UINT16:
-            case TYPE_CONFIG_ITEM_UINT32:
-            case TYPE_CONFIG_ITEM_UINT64:
-                ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_primitive(item, &uint64));
-                asprintf(&string, "%llu", uint64);
-                break;
-            case TYPE_CONFIG_ITEM_BOOL:
-            case TYPE_CONFIG_ITEM_INT8:
-            case TYPE_CONFIG_ITEM_INT16:
-            case TYPE_CONFIG_ITEM_INT32:
-            case TYPE_CONFIG_ITEM_INT64:
-                ESP_ERROR_CHECK_WITHOUT_ABORT(config_get_primitive(item, &int64));
-                asprintf(&string, "%lld", int64);
-                break;
-            default:
-                string = calloc(1, 1);
-                break;
-        }
-
-        if (string != NULL) {
-            // Hide secret values that aren't empty
-            char *value = item->secret && strlen(string) > 0 ? CONFIG_VALUE_UNCHANGED : string;
-            cJSON_AddStringToObject(root, item->key, value);
-
-            free(string);
-        }
-    }
+    cfg_to_json(root); //root is a pointer
 
     return json_response(req, root);
 }
@@ -558,6 +493,10 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
 
     cJSON *root = cJSON_Parse(buffer);
 
+    esp_err_t err = cfg_json_to_nvs(root);
+    
+    /* 
+    //commented out because the functionality is in cfg_json_to_nvs() now, and we want to commit all changes at once at the end of that function.
     int config_item_count;
     const config_item_t *config_items = config_items_get(&config_item_count);
     for (int i = 0; i < config_item_count; i++) {
@@ -571,7 +510,7 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
                 length = strlen(entry->valuestring);
 
                 // Ignore empty primitives
-                if (length == 0 && item.type != TYPE_CONFIG_ITEM_BLOB && item.type != TYPE_CONFIG_ITEM_STRING) continue;
+                if (length == 0 && item.type != TYPE_CONFIG_ITEM_STRING) continue;
 
                 // Ignore unchanged values
                 if (strcmp(entry->valuestring, CONFIG_VALUE_UNCHANGED) == 0) continue;
@@ -585,22 +524,7 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
             if (item.type > TYPE_CONFIG_ITEM_MAX) {
                 err = ESP_ERR_INVALID_ARG;
             } else if (item.type == TYPE_CONFIG_ITEM_STRING) {
-                err = config_set_str(item.key, entry->valuestring);
-            } else if (item.type == TYPE_CONFIG_ITEM_BLOB) {
-                err = config_set_blob(item.key, entry->valuestring, length);
-            } else if (item.type == TYPE_CONFIG_ITEM_COLOR) {
-                bool is_black = strcmp(entry->valuestring, "#000000") == 0;
-                config_color_t color;
-                color.rgba = strtoul(entry->valuestring + 1, NULL, 16) << 8u;
-
-                if (!is_black && color.rgba == 0) {
-                    err = ESP_ERR_INVALID_ARG;
-                } else {
-                    // Set alpha to default
-                    if (!is_black) color.values.alpha = item.def.color.values.alpha;
-
-                    err = config_set_color(item.key, color);
-                }
+                err = cfg_set_str(item.key, entry->valuestring);
             } else if (item.type == TYPE_CONFIG_ITEM_IP) {
                 uint8_t a[4];
 
@@ -648,16 +572,17 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
             }
         }
     }
-
+ */
     cJSON_Delete(root);
 
-    config_commit();
-    config_restart();
-
+    
     root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "success", true);
 
     return json_response(req, root);
+
+    // cfg_reset_restart(); - we need to restart?
+
 }
 
 static esp_err_t status_get_handler(httpd_req_t *req) {
@@ -789,11 +714,11 @@ static esp_err_t register_uri_handler(httpd_handle_t server, const char *path, h
 
 static httpd_handle_t web_server_start(void)
 {
-    config_get_primitive(CONF_ITEM(KEY_CONFIG_ADMIN_AUTH), &auth_method);
+    cfg_get_i8(KEY_CONFIG_ADMIN_AUTH, (int8_t*) &auth_method);
     if (auth_method == AUTH_METHOD_BASIC) {
         char *username, *password;
-        config_get_str_blob_alloc(CONF_ITEM(KEY_CONFIG_ADMIN_USERNAME), (void **) &username);
-        config_get_str_blob_alloc(CONF_ITEM(KEY_CONFIG_ADMIN_PASSWORD), (void **) &password);
+        cfg_get_str(KEY_CONFIG_ADMIN_USERNAME, &username);
+        cfg_get_str(KEY_CONFIG_ADMIN_PASSWORD, &password);
         basic_authentication = http_auth_basic_header(username, password);
         free(username);
         free(password);
@@ -809,13 +734,10 @@ static httpd_handle_t web_server_start(void)
         register_uri_handler(server, "/config", HTTP_GET, config_get_handler);
         register_uri_handler(server, "/config", HTTP_POST, config_post_handler);
         register_uri_handler(server, "/status", HTTP_GET, status_get_handler);
-
         register_uri_handler(server, "/log", HTTP_GET, log_get_handler);
         register_uri_handler(server, "/core_dump", HTTP_GET, core_dump_get_handler);
         register_uri_handler(server, "/heap_info", HTTP_GET, heap_info_get_handler);
-
         register_uri_handler(server, "/wifi/scan", HTTP_GET, wifi_scan_get_handler);
-
         register_uri_handler(server, "/*", HTTP_GET, file_get_handler);
     }
 
@@ -827,9 +749,9 @@ static httpd_handle_t web_server_start(void)
     buffer = malloc(BUFFER_SIZE);
 
     return server;
-}
+} //web_server_start
 
 void web_server_init() {
     www_spiffs_init();
     web_server_start();
-}
+} //web_server_init

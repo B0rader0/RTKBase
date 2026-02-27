@@ -1,9 +1,10 @@
 /*
  * Based on the ESP32-XBee distribution (https://github.com/nebkat/esp32-xbee).
  * Manages the confiuration of the RTK Base device.
- * 
+ *
  */
 
+#include <stdbool.h>
 #include <esp_err.h>
 #include <nvs_flash.h>
 #include <esp_log.h>
@@ -13,602 +14,636 @@
 #include <driver/gpio.h>
 #include <gps_uart.h>
 #include <tasks.h>
+#include <cJSON.h>
 #include "config.h"
 
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 
 static const char *TAG = "CONFIG";
-static const char *STORAGE = "config";
 
-nvs_handle_t config_handle;
+// Global handle to a NVS partition, used for reading and writing configuration values. I
+// Risky as not clear when it is open and closed,
+// Intend to remove it and open and close the partiion for each configuration operation
+// in the corresppnding init functions (e.g. wifi_init) and the web server handlers for configuration changes.
+// Rather use a string defining the name of the partition and open and close it for each operation,
+// which is safer and more robust.
 
-const config_item_t CONFIG_ITEMS[] = {
-        // Admin
-        {
-                .key = KEY_CONFIG_ADMIN_AUTH,
-                .type = TYPE_CONFIG_ITEM_INT8,
-                .def.int8 = 0
-        },
-        {
-                .key = KEY_CONFIG_ADMIN_USERNAME,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_ADMIN_PASSWORD,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .secret = true,
-                .def.str = ""
-        },
+config_item_t CONFIG_ITEMS[] = {
+    
+    {  // Admin access configuration
+        .key = KEY_CONFIG_ADMIN_AUTH, // 0 = open, 1 = basic auth, 2 = hotspot auth - maybe BOOL is enough?
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = 0 // open by default
+    },
+    {
+        .key = KEY_CONFIG_ADMIN_USERNAME,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_ADMIN_PASSWORD,
+        .type = TYPE_CFG_ITEM_SECRET_STR,
+        .def.str = ""
+    },
+    {  // NTRIP
+        .key = KEY_CONFIG_NTRIP_SERVER_ACTIVE,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_SERVER_HOST,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_SERVER_PORT,
+        .type = TYPE_CFG_ITEM_UINT16,
+        .def.uint16 = 2101
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_SERVER_MOUNTPOINT,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_SERVER_USERNAME,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_SERVER_PASSWORD,
+        .type = TYPE_CFG_ITEM_SECRET_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CLIENT_ACTIVE,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CLIENT_HOST,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CLIENT_PORT,
+        .type = TYPE_CFG_ITEM_UINT16,
+        .def.uint16 = 2101
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CLIENT_MOUNTPOINT,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CLIENT_USERNAME,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CLIENT_PASSWORD,
+        .type = TYPE_CFG_ITEM_SECRET_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CASTER_ACTIVE,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CASTER_PORT,
+        .type = TYPE_CFG_ITEM_UINT16,
+        .def.uint16 = 2101
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CASTER_MOUNTPOINT,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CASTER_USERNAME,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_NTRIP_CASTER_PASSWORD,
+        .type = TYPE_CFG_ITEM_SECRET_STR,
+        .def.str = ""
+    },
 
-        // Bluetooth
-        {
-                .key = KEY_CONFIG_BLUETOOTH_ACTIVE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_BLUETOOTH_DEVICE_NAME,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_BLUETOOTH_DEVICE_DISCOVERABLE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = true
-        }, {
-                .key = KEY_CONFIG_BLUETOOTH_PIN_CODE,
-                .type = TYPE_CONFIG_ITEM_UINT16,
-                .secret = true,
-                .def.uint16 = 1234
-        },
+    // Configuraton for the local Socket server
+    // to which clients can connect to receive the RTCM data
+    // TODO: exchange configuration commands for the GPS module.
+    {
+        .key = KEY_CONFIG_SOCKET_SERVER_ACTIVE,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_SOCKET_SERVER_TCP_PORT,
+        .type = TYPE_CFG_ITEM_UINT16,
+        .def.uint16 = 23
+    },
+    {
+        .key = KEY_CONFIG_SOCKET_SERVER_UDP_PORT,
+        .type = TYPE_CFG_ITEM_UINT16,
+        .def.uint16 = 23
+    },
 
-        // NTRIP
-        {
-                .key = KEY_CONFIG_NTRIP_SERVER_ACTIVE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_NTRIP_SERVER_COLOR,
-                .type = TYPE_CONFIG_ITEM_COLOR,
-                .def.color.rgba = 0x00000055u
-        }, {
-                .key = KEY_CONFIG_NTRIP_SERVER_HOST,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_NTRIP_SERVER_PORT,
-                .type = TYPE_CONFIG_ITEM_UINT16,
-                .def.uint16 = 2101
-        }, {
-                .key = KEY_CONFIG_NTRIP_SERVER_MOUNTPOINT,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_NTRIP_SERVER_USERNAME,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_NTRIP_SERVER_PASSWORD,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .secret = true,
-                .def.str = ""
-        },
+    {// no idea what is the purpose of the socket client?!
+        .key = KEY_CONFIG_SOCKET_CLIENT_ACTIVE,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_SOCKET_CLIENT_HOST,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_SOCKET_CLIENT_PORT,
+        .type = TYPE_CFG_ITEM_UINT16,
+        .def.uint16 = 23
+    },
+    {
+        .key = KEY_CONFIG_SOCKET_CLIENT_TYPE_TCP_UDP,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = true
+    },
+    {
+        .key = KEY_CONFIG_SOCKET_CLIENT_CONNECT_MESSAGE,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = "\n"
+    },
 
-        {
-                .key = KEY_CONFIG_NTRIP_CLIENT_ACTIVE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_NTRIP_CLIENT_COLOR,
-                .type = TYPE_CONFIG_ITEM_COLOR,
-                .def.color.rgba = 0x00000055u
-        }, {
-                .key = KEY_CONFIG_NTRIP_CLIENT_HOST,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_NTRIP_CLIENT_PORT,
-                .type = TYPE_CONFIG_ITEM_UINT16,
-                .def.uint16 = 2101
-        }, {
-                .key = KEY_CONFIG_NTRIP_CLIENT_MOUNTPOINT,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_NTRIP_CLIENT_USERNAME,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_NTRIP_CLIENT_PASSWORD,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .secret = true,
-                .def.str = ""
-        },
+    // UART
+    // Do not use UART_NUM0 and GPIO_NUM_1 and GPIO_NUM_3 as default TX and RX pins, as they are used for logging.
+    // Additionally, the board cannot be flashed if the GPS module is soldered
+    // Usin UART_NUM1 but the defult pins need to be redefined as they are connected to flas
+    {
+        .key = KEY_CONFIG_UART_NUM,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = UART_NUM_1
+    },
+    {
+        .key = KEY_CONFIG_UART_TX_PIN,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = GPIO_NUM_1
+    },
+    {
+        .key = KEY_CONFIG_UART_RX_PIN,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = GPIO_NUM_3
+    },
+    {
+        .key = KEY_CONFIG_UART_RTS_PIN,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = GPIO_NUM_14
+    },
+    {
+        .key = KEY_CONFIG_UART_CTS_PIN,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = GPIO_NUM_33
+    },
+    {
+        .key = KEY_CONFIG_UART_BAUD_RATE,
+        .type = TYPE_CFG_ITEM_UINT32,
+        .def.uint32 = 115200
+    },
+    {
+        .key = KEY_CONFIG_UART_DATA_BITS,
+        .type = TYPE_CFG_ITEM_INT8,
+        .def.int8 = UART_DATA_8_BITS
+    },
+    {
+        .key = KEY_CONFIG_UART_STOP_BITS,
+        .type = TYPE_CFG_ITEM_INT8,
+        .def.int8 = UART_STOP_BITS_1
+    },
+    {
+        .key = KEY_CONFIG_UART_PARITY,
+        .type = TYPE_CFG_ITEM_INT8,
+        .def.int8 = UART_PARITY_DISABLE
+    },
+    {
+        .key = KEY_CONFIG_UART_FLOW_CTRL_RTS,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_UART_FLOW_CTRL_CTS,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_UART_LOG_FORWARD,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
 
-        {
-                .key = KEY_CONFIG_NTRIP_CASTER_ACTIVE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_NTRIP_CASTER_COLOR,
-                .type = TYPE_CONFIG_ITEM_COLOR,
-                .def.color.rgba = 0x00000055u
-        }, {
-                .key = KEY_CONFIG_NTRIP_CASTER_PORT,
-                .type = TYPE_CONFIG_ITEM_UINT16,
-                .def.uint16 = 2101
-        }, {
-                .key = KEY_CONFIG_NTRIP_CASTER_MOUNTPOINT,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_NTRIP_CASTER_USERNAME,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_NTRIP_CASTER_PASSWORD,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .secret = true,
-                .def.str = ""
-        },
-
-        // Socket
-        {
-                .key = KEY_CONFIG_SOCKET_SERVER_ACTIVE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_SOCKET_SERVER_COLOR,
-                .type = TYPE_CONFIG_ITEM_COLOR,
-                .def.color.rgba = 0x00000055u
-        }, {
-                .key = KEY_CONFIG_SOCKET_SERVER_TCP_PORT,
-                .type = TYPE_CONFIG_ITEM_UINT16,
-                .def.uint16 = 23
-        }, {
-                .key = KEY_CONFIG_SOCKET_SERVER_UDP_PORT,
-                .type = TYPE_CONFIG_ITEM_UINT16,
-                .def.uint16 = 23
-        },
-
-        {
-                .key = KEY_CONFIG_SOCKET_CLIENT_ACTIVE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_SOCKET_CLIENT_COLOR,
-                .type = TYPE_CONFIG_ITEM_COLOR,
-                .def.color.rgba = 0x00000055u
-        }, {
-                .key = KEY_CONFIG_SOCKET_CLIENT_HOST,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_SOCKET_CLIENT_PORT,
-                .type = TYPE_CONFIG_ITEM_UINT16,
-                .def.uint16 = 23
-        }, {
-                .key = KEY_CONFIG_SOCKET_CLIENT_TYPE_TCP_UDP,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = true
-        }, {
-                .key = KEY_CONFIG_SOCKET_CLIENT_CONNECT_MESSAGE,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = "\n"
-        },
-
-        // UART
-        // Do not use UART_NUM0 and GPIO_NUM_1 and GPIO_NUM_3 as default TX and RX pins, as they are used for logging. 
-        // Additionally, the board cannot be flashed if the GPS module is soldered
-        // Usin UART_NUM1 but the defult pins need to be redefined as they are connected to flas
-        {
-                .key = KEY_CONFIG_UART_NUM,
-                .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = UART_NUM_1
-        }, {
-                .key = KEY_CONFIG_UART_TX_PIN,
-                .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = GPIO_NUM_1
-        }, {
-                .key = KEY_CONFIG_UART_RX_PIN,
-                .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = GPIO_NUM_3
-        }, {
-                .key = KEY_CONFIG_UART_RTS_PIN,
-                .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = GPIO_NUM_14
-        }, {
-                .key = KEY_CONFIG_UART_CTS_PIN,
-                .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = GPIO_NUM_33
-        }, {
-                .key = KEY_CONFIG_UART_BAUD_RATE,
-                .type = TYPE_CONFIG_ITEM_UINT32,
-                .def.uint32 = 115200
-        }, {
-                .key = KEY_CONFIG_UART_DATA_BITS,
-                .type = TYPE_CONFIG_ITEM_INT8,
-                .def.int8 = UART_DATA_8_BITS
-        }, {
-                .key = KEY_CONFIG_UART_STOP_BITS,
-                .type = TYPE_CONFIG_ITEM_INT8,
-                .def.int8 = UART_STOP_BITS_1
-        }, {
-                .key = KEY_CONFIG_UART_PARITY,
-                .type = TYPE_CONFIG_ITEM_INT8,
-                .def.int8 = UART_PARITY_DISABLE
-        }, {
-                .key = KEY_CONFIG_UART_FLOW_CTRL_RTS,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_UART_FLOW_CTRL_CTS,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_UART_LOG_FORWARD,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        },
-
-        // WiFi
-        {
-                .key = KEY_CONFIG_WIFI_AP_ACTIVE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = true
-        }, {
-                .key = KEY_CONFIG_WIFI_AP_COLOR,
-                .type = TYPE_CONFIG_ITEM_COLOR,
-                .def.color.rgba = 0x00000055u
-        }, {
-                .key = KEY_CONFIG_WIFI_AP_SSID,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_WIFI_AP_SSID_HIDDEN,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_WIFI_AP_AUTH_MODE,
-                .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = WIFI_AUTH_OPEN
-        }, {
-                .key = KEY_CONFIG_WIFI_AP_PASSWORD,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .secret = true,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_WIFI_AP_GATEWAY,
-                .type = TYPE_CONFIG_ITEM_IP,
-                // .def.uint32 = esp_netif_htonl(ESP_IP4TOADDR(192, 168, 4, 1))
-                .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 4, 1)) // IP Reverse Fix (GN)
-        }, {
-                .key = KEY_CONFIG_WIFI_AP_SUBNET,
-                .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = 24
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_ACTIVE,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_COLOR,
-                .type = TYPE_CONFIG_ITEM_COLOR,
-                .def.color.rgba = 0x0044ff55u
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_SSID,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_PASSWORD,
-                .type = TYPE_CONFIG_ITEM_STRING,
-                .secret = true,
-                .def.str = ""
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_SCAN_MODE_ALL,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_AP_FORWARD,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_STATIC,
-                .type = TYPE_CONFIG_ITEM_BOOL,
-                .def.bool1 = false
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_IP,
-                .type = TYPE_CONFIG_ITEM_IP,
-                .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 0, 100))
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_GATEWAY,
-                .type = TYPE_CONFIG_ITEM_IP,
-                .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 0, 1))
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_SUBNET,
-                .type = TYPE_CONFIG_ITEM_UINT8,
-                .def.uint8 = 24
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_DNS_A,
-                .type = TYPE_CONFIG_ITEM_IP,
-                .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(1, 1, 1, 1))
-        }, {
-                .key = KEY_CONFIG_WIFI_STA_DNS_B,
-                .type = TYPE_CONFIG_ITEM_IP,
-                .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(1, 0, 0, 1))
-        }
+    // WiFi
+    {// WiFi AP (access point)
+        .key = KEY_CONFIG_WIFI_AP_ACTIVE,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = true
+    },
+    {
+        .key = KEY_CONFIG_WIFI_AP_SSID,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = "RTK_"
+    },
+    {
+        .key = KEY_CONFIG_WIFI_AP_SSID_HIDDEN,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_WIFI_AP_AUTH_MODE,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = WIFI_AUTH_OPEN
+    },
+    {
+        .key = KEY_CONFIG_WIFI_AP_PASSWORD,
+        .type = TYPE_CFG_ITEM_SECRET_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_WIFI_AP_GATEWAY,
+        .type = TYPE_CFG_ITEM_IP,
+        .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 4, 1)) 
+    },
+    {
+        .key = KEY_CONFIG_WIFI_AP_SUBNET,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = 24
+    },
+    {// WiFi STA (station)
+        .key = KEY_CONFIG_WIFI_STA_ACTIVE,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_SSID,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_PASSWORD,
+        .type = TYPE_CFG_ITEM_SECRET_STR,
+        .def.str = ""
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_SCAN_MODE_ALL,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_AP_FORWARD,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_STATIC,
+        .type = TYPE_CFG_ITEM_BOOL,
+        .def.enabled = false
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_IP,
+        .type = TYPE_CFG_ITEM_IP,
+        .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 0, 100))
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_GATEWAY,
+        .type = TYPE_CFG_ITEM_IP,
+        .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 0, 1))
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_SUBNET,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = 24
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_DNS_A,
+        .type = TYPE_CFG_ITEM_IP,
+        .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 178, 1))
+    },
+    {
+        .key = KEY_CONFIG_WIFI_STA_DNS_B,
+        .type = TYPE_CFG_ITEM_IP,
+        .def.uint32 = esp_netif_htonl(esp_netif_ip4_makeu32(8, 8, 8, 8))
+    }
 };
 
-const config_item_t *config_items_get(int *count) {
-    *count = sizeof(CONFIG_ITEMS) / sizeof(config_item_t);
-    return &CONFIG_ITEMS[0];
-}
+// Makes sure the config partition has valid settins.
+// If not, the default values defined in the CONFIG_ITEMS are written to it.
+// All subsequent initialization functions (e.g. wifi_init) will read the values from the config partition
+// and apply them to the corresponding components (e.g. WiFi)
+// esp_err_t config_init() {
+esp_err_t cfg_init()
+{
+    nvs_handle_t h_config;       // Local handle to the NVS partition, used for reading and writing configuration values. It is opened and closed for each operation, which is safer and more robust than using a global handle.
+    config_item_value_t cfg_var; // Local variable used for reading configuration values.
+    size_t str_len_var;
 
-esp_err_t config_set(const config_item_t *item, void *value) {
-    switch (item->type) {
-        case TYPE_CONFIG_ITEM_BOOL:
-            return config_set_bool1(item->key, *((bool *) value));
-        case TYPE_CONFIG_ITEM_INT8:
-            return config_set_i8(item->key, *((int8_t *)value));
-        case TYPE_CONFIG_ITEM_INT16:
-            return config_set_i16(item->key, *((int16_t *)value));
-        case TYPE_CONFIG_ITEM_INT32:
-            return config_set_i32(item->key, *((int32_t *)value));
-        case TYPE_CONFIG_ITEM_INT64:
-            return config_set_i64(item->key, *((int64_t *)value));
-        case TYPE_CONFIG_ITEM_UINT8:
-            return config_set_u8(item->key, *((uint8_t *)value));
-        case TYPE_CONFIG_ITEM_UINT16:
-            return config_set_u16(item->key, *((uint16_t *)value));
-        case TYPE_CONFIG_ITEM_UINT32:
-            return config_set_u32(item->key, *((uint32_t *)value));
-        case TYPE_CONFIG_ITEM_UINT64:
-            return config_set_u64(item->key, *((uint64_t *)value));
-        case TYPE_CONFIG_ITEM_STRING:
-            return config_set_str(item->key, (char *) value);
-        default:
-            return ESP_ERR_INVALID_ARG;
-    }
-}
+    esp_err_t res = nvs_flash_init(); // the default partition is used, which is defined in the partition table as "nvs" and has a size of 0.5MB, which should be enough for the configuration values.
 
-esp_err_t config_set_i8(const char *key, int8_t value) {
-    return nvs_set_i8(config_handle, key, value);
-}
-
-esp_err_t config_set_i16(const char *key, int16_t value) {
-    return nvs_set_i16(config_handle, key, value);
-}
-
-esp_err_t config_set_i32(const char *key, int32_t value) {
-    return nvs_set_i32(config_handle, key, value);
-}
-
-esp_err_t config_set_i64(const char *key, int64_t value) {
-    return nvs_set_i64(config_handle, key, value);
-}
-
-esp_err_t config_set_u8(const char *key, uint8_t value) {
-    return nvs_set_u8(config_handle, key, value);
-}
-
-esp_err_t config_set_u16(const char *key, uint16_t value) {
-    return nvs_set_u16(config_handle, key, value);
-}
-
-esp_err_t config_set_u32(const char *key, uint32_t value) {
-    return nvs_set_u32(config_handle, key, value);
-}
-
-esp_err_t config_set_u64(const char *key, uint64_t value) {
-    return nvs_set_u64(config_handle, key, value);
-}
-
-esp_err_t config_set_color(const char *key, config_color_t value) {
-    return nvs_set_u32(config_handle, key, value.rgba);
-}
-
-esp_err_t config_set_bool1(const char *key, bool value) {
-    return nvs_set_i8(config_handle, key, value);
-}
-
-esp_err_t config_set_str(const char *key, char *value) {
-    return nvs_set_str(config_handle, key, value);
-}
-
-esp_err_t config_set_blob(const char *key, char *value, size_t length) {
-    return nvs_set_blob(config_handle, key, value, length);
-}
-
-esp_err_t config_init() {
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    if (res == ESP_ERR_NVS_NO_FREE_PAGES || res == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         // NVS partition was truncated and needs to be erased
         // Retry nvs_flash_init
         ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
+        res = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(err);
 
-    ESP_LOGD(TAG, "Opening Non-Volatile Storage (NVS) handle '%s'... ", STORAGE);
-    return nvs_open(STORAGE, NVS_READWRITE, &config_handle);
-}
+    ESP_ERROR_CHECK(res);
 
-esp_err_t config_reset() {
-    uart_nmea("$PESP,CFG,RESET");
+    ESP_LOGD(TAG, "Opening Non-Volatile Storage (NVS) handle");
 
-    return nvs_erase_all(config_handle);
-}
+    // A namespace is requred. It is differnet from the partition name.
+    res = nvs_open(CONFIG_PREFERENCES, NVS_READWRITE, &h_config);
+    ESP_ERROR_CHECK(res);
 
-int8_t config_get_i8(const config_item_t *item) {
-    int8_t value = item->def.int8;
-    nvs_get_i8(config_handle, item->key, &value);
-    return value;
-}
-
-int16_t config_get_i16(const config_item_t *item) {
-    int16_t value = item->def.int16;
-    nvs_get_i16(config_handle, item->key, &value);
-    return value;
-}
-
-int32_t config_get_i32(const config_item_t *item) {
-    int32_t value = item->def.int32;
-    nvs_get_i32(config_handle, item->key, &value);
-    return value;
-}
-
-int64_t config_get_i64(const config_item_t *item) {
-    int64_t value = item->def.int64;
-    nvs_get_i64(config_handle, item->key, &value);
-    return value;
-}
-
-uint8_t config_get_u8(const config_item_t *item) {
-    uint8_t value = item->def.uint8;
-    nvs_get_u8(config_handle, item->key, &value);
-    return value;
-}
-
-uint16_t config_get_u16(const config_item_t *item) {
-    uint16_t value = item->def.uint16;
-    nvs_get_u16(config_handle, item->key, &value);
-    return value;
-}
-
-uint32_t config_get_u32(const config_item_t *item) {
-    uint32_t value = item->def.uint32;
-    nvs_get_u32(config_handle, item->key, &value);
-    return value;
-}
-
-uint64_t config_get_u64(const config_item_t *item) {
-    uint64_t value = item->def.uint64;
-    nvs_get_u64(config_handle, item->key, &value);
-    return value;
-}
-
-config_color_t config_get_color(const config_item_t *item) {
-    config_color_t value = item->def.color;
-    nvs_get_u32(config_handle, item->key, &value.rgba);
-    return value;
-}
-
-bool config_get_bool1(const config_item_t *item) {
-    int8_t value = item->def.bool1;
-    nvs_get_i8(config_handle, item->key, &value);
-    return value > 0;
-}
-
-const config_item_t * config_get_item(const char *key) {
+    // Iterate over all config items and check if they exist in NVS. If not, write the default value to NVS.
+    // No need of a separate function as it will be used only here.
     for (unsigned int i = 0; i < sizeof(CONFIG_ITEMS) / sizeof(config_item_t); i++) {
-        const config_item_t *item = &CONFIG_ITEMS[i];
-        if (strcmp(item->key, key) == 0) {
-            return item;
+
+        if (strcmp(CONFIG_ITEMS[i].key, KEY_CONFIG_WIFI_AP_SSID ) == 0) {
+            CONFIG_ITEMS[i].key = "RTK_hello";
+        }
+
+        switch (CONFIG_ITEMS[i].type){
+        case TYPE_CFG_ITEM_INT8:
+        case TYPE_CFG_ITEM_BOOL: // bool is stored as int8 in NVS, so it can be read and written using the same functions as int8
+            res = nvs_get_i8(h_config, CONFIG_ITEMS[i].key, &cfg_var.int8);
+            if (res != ESP_OK)
+                nvs_set_i8(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.int8);
+            continue;
+        case TYPE_CFG_ITEM_UINT8:
+            res = nvs_get_u8(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint8));
+            if (res != ESP_OK)
+                nvs_set_u8(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint8);
+            continue;
+        case TYPE_CFG_ITEM_UINT16:
+                        res = nvs_get_u16(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint16));
+                        if (res != ESP_OK)
+                                nvs_set_u16(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint16);
+                        continue;
+        case TYPE_CFG_ITEM_UINT32:
+        case TYPE_CFG_ITEM_IP: // IP addresses are stored as uint32 in NVS, so they can be read and written using the same functions as uint32
+                        res = nvs_get_u32(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint32));
+                        if (res != ESP_OK)
+                                nvs_set_u32(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint32);
+                        continue;
+        case TYPE_CFG_ITEM_STR:
+        case TYPE_CFG_ITEM_SECRET_STR:
+            res = nvs_get_str(h_config, CONFIG_ITEMS[i].key, NULL, &str_len_var); // Get the required buffer size for the string value
+            if (res != ESP_OK) {
+                        // If the string doesn't exist in NVS or is corrupted, set it to the default value.
+                         nvs_set_str(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.str);
+            }
+                        continue;
+        default:
+            ESP_LOGE(TAG, "Unknown config item type for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
+            continue;
+        } // switch
+    } // for
+
+        // Commiting the changes to NVS. This is required after writing any value to NVS, otherwise the changes will not be saved and will be lost after a restart.
+        res = nvs_commit(h_config);
+        if (res != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to commit NVS handle: %s", esp_err_to_name(res));
+        }
+
+        nvs_close(h_config);
+
+        return ESP_OK;
+
+} // config_init()
+
+void cfg_reset_restart()
+{
+
+        // 1. Erase NVS (using the default partition)
+        // Note: nvs_flash_erase is safer for a full reset than just nvs_erase_all
+        // nvs_flash_erase also deinitializes the flash, so no need to call nvs_flash_deinit before it,
+        // and it is actually safer not to call it as it will affect other NVS handles that might be open.
+        nvs_flash_erase();
+
+        // 2. Restart
+        esp_restart();
+} // void config_restart()
+
+// The config_to_json function is used to convert the configuration values stored in NVS
+// to a JSON object that can be sent to the web interface for display and editing. 
+// The function iterates over all config items, reads their values from NVS, and adds them to the JSON object. 
+// For secret values, it hides the actual value and uses a placeholder instead.
+esp_err_t cfg_to_json(cJSON *root)
+{
+    esp_err_t res;
+    nvs_handle_t h_config;       // Local handle to the NVS partition, used for reading.
+    //config_item_value_t cfg_var; // Local variable used for reading configuration values.
+    //size_t str_len_var;
+    //char str_var[256]; // Assuming max string length is 255 characters + null termin
+    uint64_t uint64 = 0;
+    //uint8_t uint8_val = 0;
+    int8_t int8_val = 0;
+
+    size_t length = 0;
+    char *str = NULL;
+
+    esp_ip4_addr_t ip;
+
+    // A namespace is requred. It is differnet from the partition name.
+    res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_config);
+    ESP_ERROR_CHECK(res);
+
+    // Iterate over all config items and add them to the JSON object.
+    for (unsigned int i = 0; i < sizeof(CONFIG_ITEMS) / sizeof(config_item_t); i++) {
+        switch (CONFIG_ITEMS[i].type) {
+            case TYPE_CFG_ITEM_SECRET_STR:
+                // For secret strings, we don't send the actual value, just a placeholder.
+                cJSON_AddStringToObject(root, CONFIG_ITEMS[i].key, CFG_VALUE_UNCHANGED);
+                continue;
+            case TYPE_CFG_ITEM_STR:
+                // Get length
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_str(h_config, CONFIG_ITEMS[i].key, NULL, &length));
+                str = malloc(length);
+                // Get value
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_str(h_config, CONFIG_ITEMS[i].key, str, &length));
+                cJSON_AddStringToObject(root, CONFIG_ITEMS[i].key, str);
+                free(str);
+                continue;
+            case TYPE_CFG_ITEM_IP:
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u32(h_config, CONFIG_ITEMS[i].key, (uint32_t *)&ip.addr));
+                cJSON *ip_parts = cJSON_AddArrayToObject(root, CONFIG_ITEMS[i].key);
+                for (int b = 0; b < 4; b++) {
+                    cJSON_AddItemToArray(ip_parts, cJSON_CreateNumber(esp_ip4_addr_get_byte(&ip, b)));
+                }
+                continue;
+            case TYPE_CFG_ITEM_UINT8:
+            case TYPE_CFG_ITEM_UINT16:
+            case TYPE_CFG_ITEM_UINT32:
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u64(h_config, CONFIG_ITEMS[i].key, &uint64));
+                asprintf(&str, "%llu", uint64);
+                cJSON_AddStringToObject(root, CONFIG_ITEMS[i].key, str);
+                free(str);
+                continue;
+            case TYPE_CFG_ITEM_BOOL:
+            case TYPE_CFG_ITEM_INT8:
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_i8(h_config, CONFIG_ITEMS[i].key, &int8_val));
+                asprintf(&str, "%d", int8_val);
+                cJSON_AddStringToObject(root, CONFIG_ITEMS[i].key, str);
+                free(str);
+                continue;
+            default:
+                ESP_LOGE(TAG, "Unknown config item type for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
+                continue;
+        } // switch
+    } // for
+
+    nvs_close(h_config);
+    return ESP_OK;
+} // cfg_to_json
+
+// Stores the configuration values from a JSON object to NVS.
+// The function iterates over all config items, checks if they exist in the JSON object,
+// and if they do, it updates the corresponding value in NVS.
+// The magic value CONFIG_VALUE_UNCHANGED is used to indicate that a value should not be changed, 
+// which is useful for secret values that are not sent to WEB interface for security reasons and 
+// hence are not included in the JSON object sent from the web interface when a configuration change is made.
+esp_err_t cfg_json_to_nvs(cJSON *root)
+{
+    esp_err_t res;
+    nvs_handle_t h_config;
+    cJSON *item = NULL;
+
+    res = nvs_open(CONFIG_PREFERENCES, NVS_READWRITE, &h_config);
+    ESP_ERROR_CHECK(res);
+
+    // Iterate over all config items and check if they exist in the JSON object.
+    for (unsigned int i = 0; i < sizeof(CONFIG_ITEMS) / sizeof(config_item_t); i++)
+    {
+        item = cJSON_GetObjectItem(root, CONFIG_ITEMS[i].key);
+        if (item != NULL && cJSON_IsString(item)) {
+            const char *value = cJSON_GetStringValue(item);
+            if (strcmp(value, CFG_VALUE_UNCHANGED) != 0) {
+                switch (CONFIG_ITEMS[i].type) {
+                    case TYPE_CFG_ITEM_STR:
+                    case TYPE_CFG_ITEM_SECRET_STR:
+                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_str(h_config, CONFIG_ITEMS[i].key, value));
+                        continue;
+                    case TYPE_CFG_ITEM_IP:
+                        // Parse IP address from JSON array
+                        if (cJSON_IsArray(item)) {
+                            esp_ip4_addr_t ip;
+                            ip.addr = 0;
+                            for (int b = 0; b < 4; b++) {
+                                cJSON *ip_part = cJSON_GetArrayItem(item, b);
+                                if (ip_part && cJSON_IsNumber(ip_part)) {
+                                    ip.addr |= ((uint32_t)cJSON_GetNumberValue(ip_part) << (b * 8));
+                                }
+                            }
+                            ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u32(h_config, CONFIG_ITEMS[i].key, ip.addr));
+                        }
+                        continue;
+                    case TYPE_CFG_ITEM_UINT8:
+                    case TYPE_CFG_ITEM_UINT16:
+                    case TYPE_CFG_ITEM_UINT32:
+                        uint64_t uint64_value = atol(value); //this may be an error if the types do not match
+                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u64(h_config, CONFIG_ITEMS[i].key, uint64_value));
+                        break;
+                    case TYPE_CFG_ITEM_BOOL:
+                    case TYPE_CFG_ITEM_INT8:
+                        int8_t i_value = atoi(value);
+                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_i8(h_config, CONFIG_ITEMS[i].key, i_value));
+                        break;
+                }
+            }
         }
     }
 
-    // Fatal error
-    ESP_ERROR_CHECK(ESP_FAIL);
+    nvs_commit(h_config);
+    nvs_close(h_config);
 
-    return NULL;
-}
+    return ESP_OK;
+} // cfg_json_to_nvs
 
-esp_err_t config_get_primitive(const config_item_t *item, void *out_value) {
-    esp_err_t ret;
-    switch (item->type) {
-        case TYPE_CONFIG_ITEM_BOOL:
-            *((bool *) out_value) = item->def.bool1;
-            ret = nvs_get_i8(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_INT8:
-            *((int8_t *) out_value) = item->def.int8;
-            ret = nvs_get_i8(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_INT16:
-            *((int16_t *) out_value) = item->def.int16;
-            ret = nvs_get_i16(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_INT32:
-            *((int32_t *) out_value) = item->def.int32;
-            ret = nvs_get_i32(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_INT64:
-            *((int64_t *) out_value) = item->def.int64;
-            ret = nvs_get_i64(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_UINT8:
-            *((uint8_t *) out_value) = item->def.uint8;
-            ret = nvs_get_u8(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_UINT16:
-            *((uint16_t *) out_value) = item->def.uint16;
-            ret = nvs_get_u16(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_UINT32:
-        case TYPE_CONFIG_ITEM_IP:
-            *((uint32_t *) out_value) = item->def.uint32;
-            ret = nvs_get_u32(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_UINT64:
-            *((uint64_t *) out_value) = item->def.uint64;
-            ret = nvs_get_u64(config_handle, item->key, out_value);
-            break;
-        case TYPE_CONFIG_ITEM_COLOR:
-            *((config_color_t *) out_value) = item->def.color;
-            ret = nvs_get_u32(config_handle, item->key, out_value);
-            break;
-        default:
-            return ESP_ERR_INVALID_ARG;
+
+
+// Reads the string value of a configuration item from NVS, 
+// The needed memory is allocated here, because the caller does not know the length of the string in advance. 
+// The caller should free the allocated memory after using it. 
+esp_err_t cfg_get_str(const char* key, char** out_value)
+{
+    esp_err_t res;
+    nvs_handle_t h_cfg;       // Local handle to the NVS partition, used for reading.
+    size_t str_len = 0;
+    
+    res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
+    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
+
+    res = nvs_get_str(h_cfg, key, NULL, &str_len);
+    if (res != ESP_OK) { 
+        nvs_close(h_cfg);
+        return res;
+   }
+        
+    *out_value = malloc(str_len);
+
+    res = nvs_get_str(h_cfg, key, *out_value, &str_len);
+    if (res != ESP_OK) {
+        free(*out_value);
+        nvs_close(h_cfg);
+        return res;
     }
 
-    return (ret == ESP_OK || ret == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : ret;
-}
+    nvs_close(h_cfg);
+    return ESP_OK;
 
-esp_err_t config_get_str_blob_alloc(const config_item_t *item, void **out_value) {
-    size_t length;
-    esp_err_t ret = config_get_str_blob(item, NULL, &length);
-    if (ret != ESP_OK) return ret;
-    *out_value = malloc(length);
-    return config_get_str_blob(item, *out_value, &length);
-}
+} //cfg_get_str
 
-esp_err_t config_get_str_blob(const config_item_t *item, void *out_value, size_t *length) {
-    esp_err_t ret;
+esp_err_t cfg_get_i8(const char* key, int8_t* out_value)
+{
+    esp_err_t res;
+    nvs_handle_t h_cfg;       // Local handle to the NVS partition, used for reading.
+    
+    res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
+    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
 
-    switch (item->type) {
-        case TYPE_CONFIG_ITEM_STRING:
-            ret = nvs_get_str(config_handle, item->key, out_value, length);
-            if (ret == ESP_ERR_NVS_NOT_FOUND) {
-                if (length != NULL) *length = strlen(item->def.str) + 1;
-                if (out_value != NULL) strcpy(out_value, item->def.str);
-            }
-            break;
-        case TYPE_CONFIG_ITEM_BLOB:
-            ret = nvs_get_blob(config_handle, item->key, out_value, length);
-            if (ret == ESP_ERR_NVS_NOT_FOUND) {
-                if (length != NULL) *length = item->def.blob.length;
-                if (out_value != NULL) memcpy(out_value, item->def.blob.data, item->def.blob.length);
-            }
-            break;
-        default:
-            return ESP_ERR_INVALID_ARG;
-    }
+    res = nvs_get_i8(h_cfg, key, out_value);
 
-    return (ret == ESP_OK || ret == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : ret;
-}
+    nvs_close(h_cfg);
+    return res;
+    
+} //cfg_get_i8
 
-esp_err_t config_commit() {
-    uart_nmea("$PESP,CFG,UPDATED");
+esp_err_t cfg_get_u8(const char* key, uint8_t* out_value)
+{
+    esp_err_t res;
+    nvs_handle_t h_cfg;       // Local handle to the NVS partition, used for reading.
+    
+    res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
+    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
 
-    return nvs_commit(config_handle);
-}
+    res = nvs_get_u8(h_cfg, key, out_value);
 
-static void config_restart_task() {
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    esp_restart();
-}
+    nvs_close(h_cfg);
+    return res;
+    
+} //cfg_get_u8
 
-void config_restart() {
-    uart_nmea("$PESP,CFG,RESTARTING");
+esp_err_t cfg_get_u32(const char* key, uint32_t* out_value)
+{
+    esp_err_t res;
+    nvs_handle_t h_cfg;       // Local handle to the NVS partition, used for reading.
+    
+    res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
+    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
 
-    xTaskCreate(config_restart_task, "config_restart_task", 4096, NULL, TASK_PRIORITY_MAX, NULL);
-}
+    res = nvs_get_u32(h_cfg, key, out_value);
 
+    nvs_close(h_cfg);
+    return res;
+    
+} //cfg_get_u32

@@ -13,13 +13,13 @@
 #include <esp_sleep.h>
 #include <esp_idf_version.h>
 #include <button_gpio.h>
-#include <nvs_flash.h>  // For initializing and erasing the flash partition
+#include "config.h"
+//#include <nvs_flash.h>  // For initializing and erasing the flash partition
 //#include <nvs.h>        // For reading/writing actual data (keys and values)
-#include "status_led.h"
 
 /* 
 *  Most development boards have "boot" button attached to GPIO0.
-*  You can also change this to another pin.
+*  TODO change this to another pin via web configuration.
 */
 #if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32H2 || CONFIG_IDF_TARGET_ESP32C6
 #define BOOT_BUTTON_NUM         9
@@ -32,14 +32,7 @@
 // This is the callback function that will be called when the long press is released. It performs the factory reset and reboots the device.
 static void button_event_reset_and_reboot(void *arg, void *data)
 {
-    
-    // 1. Erase NVS (using the default partition)
-    // Note: nvs_flash_erase is safer for a full reset than just nvs_erase_all
-    nvs_flash_deinit();
-    nvs_flash_erase_partition("nvs");
-        
-    // 2. Restart
-    esp_restart();
+    cfg_reset_restart();
 }
 
 //void button_init(uint32_t button_num)

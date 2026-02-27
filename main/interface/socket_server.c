@@ -130,14 +130,14 @@ static int socket_init(int socktype, int port) {
 }
 
 static esp_err_t socket_tcp_init() {
-    int port = config_get_u16(CONF_ITEM(KEY_CONFIG_SOCKET_SERVER_TCP_PORT));
+    /* int port = config_get_u16(CONF_ITEM(KEY_CONFIG_SOCKET_SERVER_TCP_PORT));
 
     sock_tcp = socket_init(SOCK_STREAM, port);
     if (sock_tcp < 0) return ESP_FAIL;
 
     int err = listen(sock_tcp, 1);
     ERROR_ACTION(TAG, err != 0, destroy_socket(&sock_tcp); return ESP_FAIL, "Could not listen on TCP socket: %d %s", errno, strerror(errno))
-
+ */
     return ESP_OK;
 }
 
@@ -153,10 +153,12 @@ static esp_err_t socket_tcp_accept() {
 }
 
 static esp_err_t socket_udp_init() {
-    int port = config_get_u16(CONF_ITEM(KEY_CONFIG_SOCKET_SERVER_UDP_PORT));
+   /*  int port = config_get_u16(CONF_ITEM(KEY_CONFIG_SOCKET_SERVER_UDP_PORT));
 
     sock_udp = socket_init(SOCK_DGRAM, port);
-    return sock_udp < 0 ? ESP_FAIL : ESP_OK;
+    return sock_udp < 0 ? ESP_FAIL : ESP_OK; 
+ */
+    return ESP_OK; // temporary, for testing without UDP server
 }
 
 static bool socket_udp_has_client(struct sockaddr_in6 *source_addr) {
@@ -297,7 +299,7 @@ static void socket_server_task(void *ctx) {
 }
 
 void socket_server_init() {
-    if (!config_get_bool1(CONF_ITEM(KEY_CONFIG_SOCKET_SERVER_ACTIVE))) return;
+    //if (!config_get_bool1(CONF_ITEM(KEY_CONFIG_SOCKET_SERVER_ACTIVE))) return;
 
     xTaskCreate(socket_server_task, "socket_server_task", 4096, NULL, TASK_PRIORITY_INTERFACE, NULL);
 }

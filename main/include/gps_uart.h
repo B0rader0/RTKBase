@@ -7,7 +7,7 @@ ESP_EVENT_DECLARE_BASE(UART_EVENT_WRITE);
 
 #define UART_BUFFER_SIZE 4096
 
-void uart_init();
+esp_err_t uart_init();
 
 void uart_inject(void *data, size_t len);
 int uart_log(char *buffer, size_t len);

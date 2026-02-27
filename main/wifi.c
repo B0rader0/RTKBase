@@ -1,24 +1,11 @@
 /*
- * This file is part of the ESP32-XBee distribution (https://github.com/nebkat/esp32-xbee).
- * Copyright (c) 2019 Nebojsa Cvetkovic.
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, version 3.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * This file is based on ESP32-XBee distribution (https://github.com/nebkat/esp32-xbee).
  */
 
 #include <freertos/FreeRTOS.h>
 #include <esp_wifi.h>
 #include <esp_log.h>
-#include <esp_mac.h>   // <-- MACSTR / MAC2STR live here needed for IDF v5 (GN)
+#include <esp_mac.h>   
 #include <string.h>
 #include <mdns.h>
 #include <math.h>
@@ -29,6 +16,7 @@
 #include <freertos/event_groups.h>
 #include <esp_netif_ip_addr.h>
 #include <lwip/lwip_napt.h>
+#include <string.h>
 #include "wifi.h"
 #include "config.h"
 #include "gps_uart.h"
@@ -63,7 +51,6 @@ static void wifi_sta_reconnect_task(void *ctx) {
         int attempts = retry_delay(delay_handle);
 
         ESP_LOGI(TAG, "Station Reconnecting: %s, attempts: %d", config_sta.sta.ssid, attempts);
-        uart_nmea("$PESP,WIFI,STA,RECONNECTING,%s,%d", config_sta.sta.ssid, attempts);
 
         esp_wifi_connect();
 
@@ -90,7 +77,6 @@ static void handle_sta_connected(void *esp_netif, esp_event_base_t base, int32_t
     const wifi_event_sta_connected_t *event = (const wifi_event_sta_connected_t *) event_data;
 
     ESP_LOGI(TAG, "WIFI_EVENT_STA_CONNECTED: ssid: %.*s", event->ssid_len, event->ssid);
-    uart_nmea("$PESP,WIFI,STA,CONNECTED,%.*s", event->ssid_len, event->ssid);
 
     sta_connected = true;
 
@@ -123,7 +109,6 @@ static void handle_sta_disconnected(void *esp_netif, esp_event_base_t base, int3
     }
 
     ESP_LOGI(TAG, "WIFI_EVENT_STA_DISCONNECTED: ssid: %.*s, reason: %d (%s)", event->ssid_len, event->ssid, event->reason, reason);
-    uart_nmea("$PESP,WIFI,STA,DISCONNECTED,%.*s,%d,%s", event->ssid_len, event->ssid, event->reason, reason);
 
     sta_connected = false;
 
@@ -135,8 +120,6 @@ static void handle_sta_disconnected(void *esp_netif, esp_event_base_t base, int3
 
     xEventGroupClearBits(wifi_event_group, WIFI_STA_GOT_IPV4_BIT);
     xEventGroupClearBits(wifi_event_group, WIFI_STA_GOT_IPV6_BIT);
-
-    //if (status_led_sta != NULL) status_led_sta->flashing_mode = STATUS_LED_STATIC;
 }
 
 static void handle_sta_auth_mode_change(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
@@ -145,14 +128,15 @@ static void handle_sta_auth_mode_change(void *esp_netif, esp_event_base_t base, 
     const char *new_auth_mode = wifi_auth_mode_name(event->new_mode);
 
     ESP_LOGI(TAG, "WIFI_EVENT_STA_AUTHMODE_CHANGE: old: %s, new: %s", old_auth_mode, new_auth_mode);
-    uart_nmea("$PESP,WIFI,STA,AUTH_MODE_CHANGED,%s,%s", old_auth_mode, new_auth_mode);
 }
 
 static void handle_ap_start(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
     ESP_LOGI(TAG, "WIFI_EVENT_AP_START");
 
     // IP forwarding/NATP
-    if (config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_STA_AP_FORWARD))) {
+    bool forward;
+    cfg_get_u8(KEY_CONFIG_WIFI_STA_AP_FORWARD, (uint8_t*) &forward);
+    if (forward) {
         esp_netif_ip_info_t ip_info_ap;
         esp_netif_get_ip_info(esp_netif_ap, &ip_info_ap);
         ip_napt_enable(ip_info_ap.ip.addr, 1);
@@ -171,31 +155,28 @@ static void handle_ap_sta_connected(void *esp_netif, esp_event_base_t base, int3
     const wifi_event_ap_staconnected_t *event = (const wifi_event_ap_staconnected_t *) event_data;
 
     ESP_LOGI(TAG, "WIFI_EVENT_AP_STACONNECTED: mac: " MACSTR, MAC2STR(event->mac));
-    uart_nmea("$PESP,WIFI,AP,STA_CONNECTED," MACSTR, MAC2STR(event->mac));
 
     xEventGroupSetBits(wifi_event_group, WIFI_AP_STA_CONNECTED_BIT);
-
-    //if (status_led_ap != NULL) status_led_ap->flashing_mode = STATUS_LED_FADE;
 }
 
 static void handle_ap_sta_disconnected(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
     const wifi_event_ap_stadisconnected_t *event = (const wifi_event_ap_stadisconnected_t *) event_data;
 
     ESP_LOGI(TAG, "WIFI_EVENT_AP_STADISCONNECTED: mac: " MACSTR, MAC2STR(event->mac));
-    uart_nmea("$PESP,WIFI,AP,STA_DISCONNECTED," MACSTR, MAC2STR(event->mac));
 
     wifi_ap_sta_list();
     if (ap_sta_list.num == 0) {
         xEventGroupClearBits(wifi_event_group, WIFI_AP_STA_CONNECTED_BIT);
-
     }
 }
 
 static void handle_sta_got_ip(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
     const ip_event_got_ip_t *event = (const ip_event_got_ip_t *) event_data;
 
-    // IP forwarding/NATP update AP DHCPS DNS info
-    if (ap_active & config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_STA_AP_FORWARD))) {
+    // IP forwarding/NATP update AP DHCPS DNS info  
+    bool forward;
+    cfg_get_u8(KEY_CONFIG_WIFI_STA_AP_FORWARD, (uint8_t*) &forward);
+    if (ap_active & forward) {
         esp_netif_dns_info_t dns_info_sta;
         ESP_ERROR_CHECK(esp_netif_get_dns_info(esp_netif_sta, ESP_NETIF_DNS_MAIN, &dns_info_sta));
 
@@ -208,17 +189,12 @@ static void handle_sta_got_ip(void *esp_netif, esp_event_base_t base, int32_t ev
             IP2STR(&event->ip_info.ip),
             ffs(~event->ip_info.netmask.addr) - 1,
             IP2STR(&event->ip_info.gw));
-    uart_nmea("$PESP,WIFI,STA,IP," IPSTR "/%d," IPSTR,
-            IP2STR(&event->ip_info.ip),
-            ffs(~event->ip_info.netmask.addr) - 1,
-            IP2STR(&event->ip_info.gw));
-
+   
     xEventGroupSetBits(wifi_event_group, WIFI_STA_GOT_IPV4_BIT);
 }
 
 static void handle_sta_lost_ip(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
     ESP_LOGI(TAG, "IP_EVENT_STA_LOST_IP");
-    uart_nmea("$PESP,WIFI,STA,IP_LOST");
 
     xEventGroupClearBits(wifi_event_group, WIFI_STA_GOT_IPV4_BIT);
 }
@@ -227,7 +203,6 @@ static void handle_ap_sta_ip_assigned(void *esp_netif, esp_event_base_t base, in
     const ip_event_ap_staipassigned_t *event = (const ip_event_ap_staipassigned_t *) event_data;
 
     ESP_LOGI(TAG, "IP_EVENT_AP_STAIPASSIGNED: ip: " IPSTR, IP2STR(&event->ip));
-    uart_nmea("$PESP,WIFI,AP,STA_IP_ASSIGNED," IPSTR, IP2STR(&event->ip));
 }
 
 void wait_for_ip() {
@@ -239,22 +214,28 @@ void wait_for_network() {
 }
 
 void net_init() {
+    bool bool_var;
+
     esp_netif_init();
 
     // SoftAP
-    bool ap_enable = config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_AP_ACTIVE));
-    if (ap_enable) {
+    cfg_get_u8(KEY_CONFIG_WIFI_AP_ACTIVE, (uint8_t*) &bool_var);
+    if (bool_var) {
         esp_netif_ap = esp_netif_create_default_wifi_ap();
 
         // IP configuration
         esp_netif_ip_info_t ip_info_ap;
-        config_get_primitive(CONF_ITEM(KEY_CONFIG_WIFI_AP_GATEWAY), &ip_info_ap.ip);
+        cfg_get_u32(KEY_CONFIG_WIFI_AP_GATEWAY, (uint32_t*) &ip_info_ap.ip);
         ip_info_ap.gw = ip_info_ap.ip;
-        uint8_t subnet = config_get_u8(CONF_ITEM(KEY_CONFIG_WIFI_STA_SUBNET));
+
+        uint8_t subnet = 24; // Default subnet
+        ESP_ERROR_CHECK(cfg_get_u8(KEY_CONFIG_WIFI_AP_SUBNET, &subnet));
+        
         ip_info_ap.netmask.addr = esp_netif_htonl(0xffffffffu << (32u - subnet));
 
         // IP forwarding/NATP
-        if (config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_STA_AP_FORWARD))) {
+        cfg_get_u8(KEY_CONFIG_WIFI_STA_AP_FORWARD, (uint8_t*) &bool_var);
+        if (bool_var) {
             uint8_t dhcps_offer = true;
             ESP_ERROR_CHECK(esp_netif_dhcps_option(esp_netif_ap, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &dhcps_offer, 1));
         }
@@ -265,21 +246,23 @@ void net_init() {
     }
 
     // STA
-    bool sta_enable = config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_STA_ACTIVE));
-    if (sta_enable) {
+    cfg_get_u8(KEY_CONFIG_WIFI_STA_ACTIVE, (uint8_t*) &bool_var);
+    if (bool_var) {
         esp_netif_ip_info_t ip_info_sta;
         esp_netif_sta = esp_netif_create_default_wifi_sta();
 
         // Static IP configuration
-        if (config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_STA_STATIC))) {
-            config_get_primitive(CONF_ITEM(KEY_CONFIG_WIFI_STA_IP), &ip_info_sta.ip);
-            config_get_primitive(CONF_ITEM(KEY_CONFIG_WIFI_STA_GATEWAY), &ip_info_sta.gw);
-            uint8_t subnet = config_get_u8(CONF_ITEM(KEY_CONFIG_WIFI_STA_SUBNET));
+        cfg_get_u8(KEY_CONFIG_WIFI_STA_STATIC, (uint8_t*) &bool_var);
+        if (bool_var) {
+            cfg_get_u32(KEY_CONFIG_WIFI_STA_IP, (uint32_t*) &ip_info_sta.ip);
+            cfg_get_u32(KEY_CONFIG_WIFI_STA_GATEWAY, (uint32_t*) &ip_info_sta.gw);
+            uint8_t subnet = 24; // Default subnet
+            ESP_ERROR_CHECK(cfg_get_u8(KEY_CONFIG_WIFI_STA_SUBNET, &subnet));
             ip_info_sta.netmask.addr = esp_netif_htonl(0xffffffffu << (32u - subnet));
 
             esp_netif_dns_info_t dns_info_sta_main, dns_info_sta_backup;
-            config_get_primitive(CONF_ITEM(KEY_CONFIG_WIFI_STA_DNS_A), &dns_info_sta_main.ip.u_addr.ip4.addr);
-            config_get_primitive(CONF_ITEM(KEY_CONFIG_WIFI_STA_DNS_B), &dns_info_sta_backup.ip.u_addr.ip4.addr);
+            cfg_get_u32(KEY_CONFIG_WIFI_STA_DNS_A, (uint32_t*) &dns_info_sta_main.ip.u_addr.ip4.addr);
+            cfg_get_u32(KEY_CONFIG_WIFI_STA_DNS_B, (uint32_t*) &dns_info_sta_backup.ip.u_addr.ip4.addr);
 
             ESP_ERROR_CHECK(esp_netif_dhcpc_stop(esp_netif_sta));
             ESP_ERROR_CHECK(esp_netif_set_ip_info(esp_netif_sta, &ip_info_sta));
@@ -313,8 +296,10 @@ void wifi_init() {
     // Reconnect delay timer
     delay_handle = retry_init(true, 5, 2000, 60000);
 
-    bool sta_enable = config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_STA_ACTIVE));
-    bool ap_enable = config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_AP_ACTIVE));
+    bool sta_enable;
+    cfg_get_u8(KEY_CONFIG_WIFI_STA_ACTIVE, (uint8_t*) &sta_enable);
+    bool ap_enable;
+    cfg_get_u8(KEY_CONFIG_WIFI_AP_ACTIVE, (uint8_t*) &ap_enable);
 
     // Configure and connect
     wifi_mode_t wifi_mode;
@@ -324,8 +309,9 @@ void wifi_init() {
         wifi_mode = WIFI_MODE_AP;
     } else if (sta_enable) {
         wifi_mode = WIFI_MODE_STA;
-    } else {
-        return;
+    } else { //The device needs to be in at least one mode to be useful, so we will default to AP mode if both are disabled.
+        wifi_mode = WIFI_MODE_AP;
+        ESP_LOGW(TAG, "Both STA and AP modes are disabled in configuration, defaulting to AP mode.");
     }
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(wifi_mode));
@@ -338,24 +324,24 @@ void wifi_init() {
 
         config_ap.ap.max_connection = 4;
         size_t ap_ssid_len = sizeof(config_ap.ap.ssid);
-        config_get_str_blob(CONF_ITEM(KEY_CONFIG_WIFI_AP_SSID), &config_ap.ap.ssid, &ap_ssid_len);
+        // fixme - a specific type needed cfg_get_str(KEY_CONFIG_WIFI_AP_SSID, &config_ap.ap.ssid); //, &ap_ssid_len);
         ap_ssid_len--; // Remove null terminator from length
         config_ap.ap.ssid_len = ap_ssid_len;
         if (ap_ssid_len == 0) {
             // Generate a default AP SSID based on MAC address and store
             uint8_t mac[6];
             esp_wifi_get_mac(WIFI_IF_AP, mac);
-            snprintf((char *) config_ap.ap.ssid, sizeof(config_ap.ap.ssid), "ESP_XBee_%02X%02X%02X",
-                    mac[3], mac[4], mac[5]);
+            //snprintf((char *) config_ap.ap.ssid, sizeof(config_ap.ap.ssid), "RTK_Base_BAR"); //temporary, just to compile
+                   // mac[3], mac[4], mac[5]);
             config_ap.ap.ssid_len = strlen((char *) config_ap.ap.ssid);
 
-            config_set_str(KEY_CONFIG_WIFI_AP_SSID, (char *) config_ap.ap.ssid);
+            // fixme - not here, but in cfg_init config_set_str(KEY_CONFIG_WIFI_AP_SSID, (char *) config_ap.ap.ssid);
         }
-        config_get_primitive(CONF_ITEM(KEY_CONFIG_WIFI_AP_SSID_HIDDEN), &config_ap.ap.ssid_hidden);
+        cfg_get_u8(KEY_CONFIG_WIFI_AP_SSID_HIDDEN, &config_ap.ap.ssid_hidden);
         size_t ap_password_len = sizeof(config_ap.ap.password);
-        config_get_str_blob(CONF_ITEM(KEY_CONFIG_WIFI_AP_PASSWORD), &config_ap.ap.password, &ap_password_len);
+        // fixme - a specific type needed cfg_get_str(KEY_CONFIG_WIFI_AP_PASSWORD, &config_ap.ap.password); //, &ap_password_len);
         ap_password_len--; // Remove null terminator from length
-        config_get_primitive(CONF_ITEM(KEY_CONFIG_WIFI_AP_AUTH_MODE), &config_ap.ap.authmode);
+        cfg_get_u8(KEY_CONFIG_WIFI_AP_AUTH_MODE, (uint8_t*) &config_ap.ap.authmode);
 
         ESP_LOGI(TAG, "WIFI_AP_SSID: %s %s(%s)", config_ap.ap.ssid,
                 config_ap.ap.ssid_hidden ? "(hidden) " : "",
@@ -379,22 +365,22 @@ void wifi_init() {
 
     // STA
     if (sta_enable) {
-        size_t sta_ssid_len = sizeof(config_sta.sta.ssid);
-        config_get_str_blob(CONF_ITEM(KEY_CONFIG_WIFI_STA_SSID), &config_sta.sta.ssid, &sta_ssid_len);
-        sta_ssid_len--; // Remove null terminator from length
-        if (sta_ssid_len == 0) sta_enable = false;
-        size_t sta_password_len = sizeof(config_sta.sta.password);
-        config_get_str_blob(CONF_ITEM(KEY_CONFIG_WIFI_STA_PASSWORD), &config_sta.sta.password, &sta_password_len);
-        sta_password_len--; // Remove null terminator from length
-        config_sta.sta.scan_method = config_get_bool1(CONF_ITEM(KEY_CONFIG_WIFI_STA_SCAN_MODE_ALL))
-                ? WIFI_ALL_CHANNEL_SCAN : WIFI_FAST_SCAN;
+        // Read SSID from config, it is assumed to be set. 
+        char *buff = NULL;
 
+        ESP_ERROR_CHECK(cfg_get_str(KEY_CONFIG_WIFI_STA_SSID, &buff)); //This should not fail as the config should have been initialized in cfg_init(), but if it does, we will treat it as if the SSID was not set and disable STA mode.
+        strncpy((char *) config_sta.sta.ssid, buff, sizeof(config_sta.sta.ssid));   
+        free(buff);
+
+        ESP_ERROR_CHECK(cfg_get_str(KEY_CONFIG_WIFI_STA_PASSWORD, &buff)); //This should not fail as the config should have been initialized in cfg_init(), but if it does, we will treat it as if the SSID was not set and disable STA mode.
+        strncpy((char *) config_sta.sta.password, buff, sizeof(config_sta.sta.password));   
+        free(buff);
+        
+        cfg_get_u8(KEY_CONFIG_WIFI_STA_SCAN_MODE_ALL, (uint8_t*) &config_sta.sta.scan_method);
+        
         ESP_LOGI(TAG, "WIFI_STA_CONNECTING: %s (%s), %s scan", config_sta.sta.ssid,
-                sta_password_len == 0 ? "open" : "with password",
+                strlen((char *) config_sta.sta.password) == 0 ? "open" : "with password",
                 config_sta.sta.scan_method == WIFI_ALL_CHANNEL_SCAN ? "all channel" : "fast");
-        uart_nmea("$PESP,WIFI,STA,CONNECTING,%s,%c,%c", config_sta.sta.ssid,
-                sta_password_len == 0 ? 'O' : 'P',
-                config_sta.sta.scan_method == WIFI_ALL_CHANNEL_SCAN ? 'A' : 'F');
 
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config_sta));
         ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20));

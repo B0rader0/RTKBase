@@ -90,8 +90,9 @@ static void ntrip_server_sleep_task(void *ctx) {
     }
 }
 
-static void ntrip_server_task(void *ctx) {
-    server_event_group = xEventGroupCreate();
+static void ntrip_server_task(void *ctx) 
+{
+    /* server_event_group = xEventGroupCreate();
     uart_register_read_handler(ntrip_server_uart_handler);
     xTaskCreate(ntrip_server_sleep_task, "ntrip_server_sleep_task", 2048, NULL, TASK_PRIORITY_INTERFACE, &sleep_task);
 
@@ -134,12 +135,7 @@ static void ntrip_server_task(void *ctx) {
                 "Source-Agent: NTRIP %s/%s" NEWLINE \
                 NEWLINE, password, mountpoint, NTRIP_SERVER_NAME, &esp_app_get_description()->version[1]); // new in IDF v5 (GN)
 
-        /* 
-        snprintf(buffer, BUFFER_SIZE, "SOURCE %s /%s" NEWLINE \
-                 "Source-Agent: NTRIP %s/%s" NEWLINE \
-                 NEWLINE, password, mountpoint, NTRIP_SERVER_NAME, &esp_ota_get_app_description()->version[1]);
-        */
-
+    
         int err = write(sock, buffer, strlen(buffer));
         ERROR_ACTION(TAG, err < 0, goto _error, "Could not send request to caster: %d %s", errno, strerror(errno));
 
@@ -178,11 +174,11 @@ static void ntrip_server_task(void *ctx) {
         free(host);
         free(mountpoint);
         free(password);
-    }
+    } */
 }
 
 void ntrip_server_init() {
-    if (!config_get_bool1(CONF_ITEM(KEY_CONFIG_NTRIP_SERVER_ACTIVE))) return;
+    //if (!config_get_bool1(CONF_ITEM(KEY_CONFIG_NTRIP_SERVER_ACTIVE))) return;
 
     xTaskCreate(ntrip_server_task, "ntrip_server_task", 4096, NULL, TASK_PRIORITY_INTERFACE, &server_task);
 }

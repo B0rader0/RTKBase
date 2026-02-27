@@ -49,7 +49,7 @@ static void socket_client_uart_handler(void* handler_args, esp_event_base_t base
 }
 
 static void socket_client_task(void *ctx) {
-    uart_register_read_handler(socket_client_uart_handler);
+    /* uart_register_read_handler(socket_client_uart_handler);
 
     stream_stats = stream_stats_new("socket_client");
 
@@ -102,11 +102,11 @@ static void socket_client_task(void *ctx) {
         free(connect_message);
     }
 
-    vTaskDelete(NULL);
+    vTaskDelete(NULL); */
 }
 
 void socket_client_init() {
-    if (!config_get_bool1(CONF_ITEM(KEY_CONFIG_SOCKET_CLIENT_ACTIVE))) return;
+    //if (!config_get_bool1(CONF_ITEM(KEY_CONFIG_SOCKET_CLIENT_ACTIVE))) return;
 
     xTaskCreate(socket_client_task, "socket_client_task", 4096, NULL, TASK_PRIORITY_INTERFACE, NULL);
 }
