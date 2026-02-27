@@ -213,18 +213,18 @@ config_item_t CONFIG_ITEMS[] = {
     },
     {
         .key = KEY_CONFIG_UART_DATA_BITS,
-        .type = TYPE_CFG_ITEM_INT8,
-        .def.int8 = UART_DATA_8_BITS
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = UART_DATA_8_BITS
     },
     {
         .key = KEY_CONFIG_UART_STOP_BITS,
-        .type = TYPE_CFG_ITEM_INT8,
-        .def.int8 = UART_STOP_BITS_1
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = UART_STOP_BITS_1
     },
     {
         .key = KEY_CONFIG_UART_PARITY,
-        .type = TYPE_CFG_ITEM_INT8,
-        .def.int8 = UART_PARITY_DISABLE
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = UART_PARITY_DISABLE
     },
     {
         .key = KEY_CONFIG_UART_FLOW_CTRL_RTS,
@@ -357,7 +357,7 @@ esp_err_t cfg_init()
 
     ESP_ERROR_CHECK(res);
 
-    ESP_LOGD(TAG, "Opening Non-Volatile Storage (NVS) handle");
+    ESP_LOGI(TAG, "BAR - Opening Non-Volatile Storage (NVS) handle");
 
     // A namespace is requred. It is differnet from the partition name.
     res = nvs_open(CONFIG_PREFERENCES, NVS_READWRITE, &h_config);
@@ -372,52 +372,47 @@ esp_err_t cfg_init()
         }
 
         switch (CONFIG_ITEMS[i].type){
-        case TYPE_CFG_ITEM_INT8:
-        case TYPE_CFG_ITEM_BOOL: // bool is stored as int8 in NVS, so it can be read and written using the same functions as int8
-            res = nvs_get_i8(h_config, CONFIG_ITEMS[i].key, &cfg_var.int8);
-            if (res != ESP_OK)
-                nvs_set_i8(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.int8);
-            continue;
-        case TYPE_CFG_ITEM_UINT8:
-            res = nvs_get_u8(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint8));
-            if (res != ESP_OK)
-                nvs_set_u8(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint8);
-            continue;
-        case TYPE_CFG_ITEM_UINT16:
-                        res = nvs_get_u16(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint16));
-                        if (res != ESP_OK)
-                                nvs_set_u16(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint16);
-                        continue;
-        case TYPE_CFG_ITEM_UINT32:
-        case TYPE_CFG_ITEM_IP: // IP addresses are stored as uint32 in NVS, so they can be read and written using the same functions as uint32
-                        res = nvs_get_u32(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint32));
-                        if (res != ESP_OK)
-                                nvs_set_u32(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint32);
-                        continue;
-        case TYPE_CFG_ITEM_STR:
-        case TYPE_CFG_ITEM_SECRET_STR:
-            res = nvs_get_str(h_config, CONFIG_ITEMS[i].key, NULL, &str_len_var); // Get the required buffer size for the string value
-            if (res != ESP_OK) {
-                        // If the string doesn't exist in NVS or is corrupted, set it to the default value.
-                         nvs_set_str(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.str);
-            }
-                        continue;
-        default:
-            ESP_LOGE(TAG, "Unknown config item type for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
+            case TYPE_CFG_ITEM_UINT8:
+            case TYPE_CFG_ITEM_BOOL:
+                res = nvs_get_u8(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint8));
+                if (res != ESP_OK)
+                    nvs_set_u8(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint8);
+                continue;
+            case TYPE_CFG_ITEM_UINT16:
+                res = nvs_get_u16(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint16));
+                if (res != ESP_OK)
+                    nvs_set_u16(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint16);
+                continue;
+            case TYPE_CFG_ITEM_UINT32:
+            case TYPE_CFG_ITEM_IP: // IP addresses are stored as uint32 in NVS, so they can be read and written using the same functions as uint32
+                res = nvs_get_u32(h_config, CONFIG_ITEMS[i].key, &(cfg_var.uint32));
+                if (res != ESP_OK)
+                    nvs_set_u32(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.uint32);
+                continue;
+            case TYPE_CFG_ITEM_STR:
+            case TYPE_CFG_ITEM_SECRET_STR:
+                res = nvs_get_str(h_config, CONFIG_ITEMS[i].key, NULL, &str_len_var); // Get the required buffer size for the string value
+                if (res != ESP_OK) {
+                    // If the string doesn't exist in NVS or is corrupted, set it to the default value.
+                    nvs_set_str(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.str);
+                }
+                continue;
+            default:
+                ESP_LOGE(TAG, "Unknown config item type for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
             continue;
         } // switch
     } // for
 
-        // Commiting the changes to NVS. This is required after writing any value to NVS, otherwise the changes will not be saved and will be lost after a restart.
-        res = nvs_commit(h_config);
-        if (res != ESP_OK)
+    // Commiting the changes to NVS. This is required after writing any value to NVS, otherwise the changes will not be saved and will be lost after a restart.
+    res = nvs_commit(h_config);
+    if (res != ESP_OK)
         {
             ESP_LOGE(TAG, "Failed to commit NVS handle: %s", esp_err_to_name(res));
-        }
+    }
 
-        nvs_close(h_config);
+    nvs_close(h_config);
 
-        return ESP_OK;
+    return ESP_OK;
 
 } // config_init()
 
@@ -481,6 +476,7 @@ esp_err_t cfg_to_json(cJSON *root)
                     cJSON_AddItemToArray(ip_parts, cJSON_CreateNumber(esp_ip4_addr_get_byte(&ip, b)));
                 }
                 continue;
+            case TYPE_CFG_ITEM_BOOL:
             case TYPE_CFG_ITEM_UINT8:
             case TYPE_CFG_ITEM_UINT16:
             case TYPE_CFG_ITEM_UINT32:
@@ -489,13 +485,13 @@ esp_err_t cfg_to_json(cJSON *root)
                 cJSON_AddStringToObject(root, CONFIG_ITEMS[i].key, str);
                 free(str);
                 continue;
-            case TYPE_CFG_ITEM_BOOL:
+            /* case TYPE_CFG_ITEM_BOOL:
             case TYPE_CFG_ITEM_INT8:
                 ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_i8(h_config, CONFIG_ITEMS[i].key, &int8_val));
                 asprintf(&str, "%d", int8_val);
                 cJSON_AddStringToObject(root, CONFIG_ITEMS[i].key, str);
                 free(str);
-                continue;
+                continue; */
             default:
                 ESP_LOGE(TAG, "Unknown config item type for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
                 continue;
@@ -547,16 +543,15 @@ esp_err_t cfg_json_to_nvs(cJSON *root)
                             ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u32(h_config, CONFIG_ITEMS[i].key, ip.addr));
                         }
                         continue;
+                    case TYPE_CFG_ITEM_BOOL:
                     case TYPE_CFG_ITEM_UINT8:
+                        uint8_t uint8_value = atoi(value); //this may be an error if the types do not match
+                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u8(h_config, CONFIG_ITEMS[i].key, uint8_value));
+                        break;
                     case TYPE_CFG_ITEM_UINT16:
                     case TYPE_CFG_ITEM_UINT32:
-                        uint64_t uint64_value = atol(value); //this may be an error if the types do not match
-                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u64(h_config, CONFIG_ITEMS[i].key, uint64_value));
-                        break;
-                    case TYPE_CFG_ITEM_BOOL:
-                    case TYPE_CFG_ITEM_INT8:
-                        int8_t i_value = atoi(value);
-                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_i8(h_config, CONFIG_ITEMS[i].key, i_value));
+                        uint32_t uint32_value = atol(value); //this may be an error if the types do not match
+                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u32(h_config, CONFIG_ITEMS[i].key, uint32_value));
                         break;
                 }
             }
@@ -603,21 +598,6 @@ esp_err_t cfg_get_str(const char* key, char** out_value)
 
 } //cfg_get_str
 
-esp_err_t cfg_get_i8(const char* key, int8_t* out_value)
-{
-    esp_err_t res;
-    nvs_handle_t h_cfg;       // Local handle to the NVS partition, used for reading.
-    
-    res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
-    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
-
-    res = nvs_get_i8(h_cfg, key, out_value);
-
-    nvs_close(h_cfg);
-    return res;
-    
-} //cfg_get_i8
-
 esp_err_t cfg_get_u8(const char* key, uint8_t* out_value)
 {
     esp_err_t res;
@@ -635,10 +615,9 @@ esp_err_t cfg_get_u8(const char* key, uint8_t* out_value)
 
 esp_err_t cfg_get_u32(const char* key, uint32_t* out_value)
 {
-    esp_err_t res;
     nvs_handle_t h_cfg;       // Local handle to the NVS partition, used for reading.
     
-    res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
+    esp_err_t res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
     ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
 
     res = nvs_get_u32(h_cfg, key, out_value);

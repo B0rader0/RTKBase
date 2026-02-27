@@ -494,85 +494,14 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
     cJSON *root = cJSON_Parse(buffer);
 
     esp_err_t err = cfg_json_to_nvs(root);
+    if (err != ESP_OK) {
+        cJSON_Delete(root);
+
+        ESP_LOGE(TAG, "Failed cfg_json_to_nvs in post handler: %s", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to save config from JSON");
+        return ESP_FAIL;
+    }   
     
-    /* 
-    //commented out because the functionality is in cfg_json_to_nvs() now, and we want to commit all changes at once at the end of that function.
-    int config_item_count;
-    const config_item_t *config_items = config_items_get(&config_item_count);
-    for (int i = 0; i < config_item_count; i++) {
-        config_item_t item = config_items[i];
-
-        if (cJSON_HasObjectItem(root, item.key)) {
-            cJSON *entry = cJSON_GetObjectItem(root, item.key);
-
-            size_t length = 0;
-            if (cJSON_IsString(entry)) {
-                length = strlen(entry->valuestring);
-
-                // Ignore empty primitives
-                if (length == 0 && item.type != TYPE_CONFIG_ITEM_STRING) continue;
-
-                // Ignore unchanged values
-                if (strcmp(entry->valuestring, CONFIG_VALUE_UNCHANGED) == 0) continue;
-            }
-
-            // TODO: Cleanup
-            // REFACTORING NEEDED: This large if-else chain should be refactored into
-            // a switch statement or a lookup table for better maintainability.
-            // Consider extracting each type handler into separate functions.
-            esp_err_t err;
-            if (item.type > TYPE_CONFIG_ITEM_MAX) {
-                err = ESP_ERR_INVALID_ARG;
-            } else if (item.type == TYPE_CONFIG_ITEM_STRING) {
-                err = cfg_set_str(item.key, entry->valuestring);
-            } else if (item.type == TYPE_CONFIG_ITEM_IP) {
-                uint8_t a[4];
-
-                if (!cJSON_IsArray(entry) || cJSON_GetArraySize(entry) != 4) {
-                    err = ESP_ERR_INVALID_ARG;
-                } else {
-                    for (int b = 0; b < 4; b++) {
-                        a[b] = (uint8_t) strtoul(cJSON_GetArrayItem(entry, b)->valuestring, NULL, 10);
-                    }
-;
-                    uint32_t ip = esp_netif_htonl(esp_netif_ip4_makeu32(a[0], a[1], a[2], a[3]));
-                    err = config_set_u32(item.key, ip);
-                }
-            } else {
-                bool is_zero = strcmp(entry->valuestring, "0") == 0 || strcmp(entry->valuestring, "0.0") == 0;
-                int64_t int64 = strtol(entry->valuestring, NULL, 10);
-                uint64_t uint64 = strtoul(entry->valuestring, NULL, 10);
-
-                if (!is_zero && (int64 == 0 || uint64 == 0)) {
-                    err = ESP_ERR_INVALID_ARG;
-                } else {
-                    switch (item.type) {
-                        case TYPE_CONFIG_ITEM_BOOL:
-                        case TYPE_CONFIG_ITEM_INT8:
-                        case TYPE_CONFIG_ITEM_INT16:
-                        case TYPE_CONFIG_ITEM_INT32:
-                        case TYPE_CONFIG_ITEM_INT64:
-                            err = config_set(&item, &int64);
-                            break;
-                        case TYPE_CONFIG_ITEM_UINT8:
-                        case TYPE_CONFIG_ITEM_UINT16:
-                        case TYPE_CONFIG_ITEM_UINT32:
-                        case TYPE_CONFIG_ITEM_UINT64:
-                            err = config_set(&item, &uint64);
-                            break;
-                        default:
-                            err = ESP_FAIL;
-                            break;
-                    }
-                }
-            }
-
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Error setting %s = %s: %d - %s", item.key, entry->valuestring, err, esp_err_to_name(err));
-            }
-        }
-    }
- */
     cJSON_Delete(root);
 
     
@@ -714,7 +643,7 @@ static esp_err_t register_uri_handler(httpd_handle_t server, const char *path, h
 
 static httpd_handle_t web_server_start(void)
 {
-    cfg_get_i8(KEY_CONFIG_ADMIN_AUTH, (int8_t*) &auth_method);
+    cfg_get_u8(KEY_CONFIG_ADMIN_AUTH, (uint8_t*) &auth_method);
     if (auth_method == AUTH_METHOD_BASIC) {
         char *username, *password;
         cfg_get_str(KEY_CONFIG_ADMIN_USERNAME, &username);

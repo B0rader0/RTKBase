@@ -35,7 +35,7 @@ void app_main()
 {
     esp_log_level_set(TAG, ESP_LOG_INFO);
     
-    log_init();
+    //log_init();
         
     // BUG: (and hence commented out)
     // Bug because it is not yet known what to redirect to the UART and WebSocket clients are not configured yet!
@@ -58,15 +58,17 @@ void app_main()
     // The idea to use the built LED does not work because the LED is not controllable.
     reset_button_init();
  
-    stream_stats_init();
-
+    // Initialize NVS with default values if they don't exist already in NVS
+    // When the values are later needed, they are read from NVS (where they shoud exist)!
     cfg_init();
+    
+    //stream_stats_init();
+
     
     uart_init();
 
-    esp_reset_reason_t reset_reason = esp_reset_reason();
+    /* esp_reset_reason_t reset_reason = esp_reset_reason();
 
-    //uart_nmea("$PESP,INIT,START,%s,%s", app_desc->version, reset_reason_name(reset_reason));
 
     ESP_LOGI(TAG, "╔══════════════════════════════════════════════╗");
     ESP_LOGI(TAG, "║ Reset reason: %-30s "                       "║", reset_reason_name(reset_reason));
@@ -95,7 +97,7 @@ void app_main()
     sntp_set_sync_mode(SNTP_SYNC_MODE_SMOOTH);
     sntp_set_time_sync_notification_cb(sntp_time_set_handler);
     esp_sntp_init(); 
-
+ */
 }  // app_main
 
 // Helper function to convert reset reason enum to string for logging purposes

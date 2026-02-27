@@ -8,7 +8,6 @@
 typedef enum
 {
     TYPE_CFG_ITEM_BOOL = 0, 
-    TYPE_CFG_ITEM_INT8,
     TYPE_CFG_ITEM_UINT8,
     TYPE_CFG_ITEM_UINT16,
     TYPE_CFG_ITEM_UINT32,
@@ -20,7 +19,6 @@ typedef enum
 typedef union
 {
     bool     enabled;
-    int8_t   int8;
     uint8_t  uint8;
     uint16_t uint16;
     uint32_t uint32;
@@ -129,7 +127,6 @@ esp_err_t cfg_init();
 esp_err_t cfg_to_json(cJSON *root);
 esp_err_t cfg_json_to_nvs(cJSON *root);
 esp_err_t cfg_get_str(const char* key, char** out_value);  
-esp_err_t cfg_get_i8(const char* key, int8_t* out_value);
 esp_err_t cfg_get_u8(const char* key, uint8_t* out_value);
 esp_err_t cfg_get_u32(const char* key, uint32_t* out_value);
 
