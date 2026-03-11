@@ -21,6 +21,7 @@
 #include <freertos/ringbuf.h>
 #include <string.h>
 #include <gps_uart.h>
+#include "config.h"
 #include "log.h"
 
 #define INITIAL_MAGIC "@@@@\n"
@@ -44,6 +45,9 @@ esp_err_t log_init() {
 
 int log_vprintf(const char * format, va_list arg) {
     char buffer[512];
+    uint8_t uart_port = 0;
+    cfg_get_u8(KEY_CONFIG_UART_NUM, &uart_port);
+
     int n = vsnprintf(buffer, 512, format, arg);
 
     if (n > 512) {
@@ -55,7 +59,7 @@ int log_vprintf(const char * format, va_list arg) {
             n - strlen(LOG_COLOR_E) - strlen(LOG_RESET_COLOR) - 1, 0);
     xRingbufferSend(ringbuf_handle, "\n", 1, 0);
 
-    uart_log(buffer, n);
+    uart_log(uart_port, buffer, n);
 
     return n;
 }

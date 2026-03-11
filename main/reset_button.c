@@ -4,18 +4,13 @@
 *  The idea to use the built LED does not work because the LED is not controllable.
 */
 
-#include <stdio.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_log.h>
-#include <esp_pm.h>
 #include <iot_button.h>
-#include <esp_sleep.h>
 #include <esp_idf_version.h>
 #include <button_gpio.h>
 #include "config.h"
-//#include <nvs_flash.h>  // For initializing and erasing the flash partition
-//#include <nvs.h>        // For reading/writing actual data (keys and values)
 
 /* 
 *  Most development boards have "boot" button attached to GPIO0.

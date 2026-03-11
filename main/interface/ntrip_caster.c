@@ -53,10 +53,7 @@ static void ntrip_caster_client_remove(ntrip_caster_client_t *caster_client)
 {
     struct sockaddr_in6 client_addr;
     socklen_t socklen = sizeof(client_addr);
-    int err = getpeername(caster_client->socket, (struct sockaddr *)&client_addr, &socklen);
-    char *addr_str = err != 0 ? "UNKNOWN" : sockaddrtostr((struct sockaddr *)&client_addr);
-
-    uart_nmea("$PESP,NTRIP,CST,CLIENT,DISCONNECTED,%s", addr_str);
+    getpeername(caster_client->socket, (struct sockaddr *)&client_addr, &socklen);
 
     destroy_socket(&caster_client->socket);
 
@@ -122,7 +119,7 @@ static void ntrip_caster_task(void *ctx)
     {
         ntrip_caster_socket_init();
 
-        char *mountpoint, *username, *password;
+        char *mountpoint, *username; //, *password;
 
         /*
         fixme bar
@@ -239,8 +236,7 @@ static void ntrip_caster_task(void *ctx)
             // Socket will now be dealt with by ntrip_caster_uart_handler, set to -1 so it doesn't get destroyed
             sock_client = -1;
 
-            char *addr_str = sockaddrtostr((struct sockaddr *)&source_addr);
-            uart_nmea("$PESP,NTRIP,CST,CLIENT,CONNECTED,%s", addr_str);
+            //char *addr_str = sockaddrtostr((struct sockaddr *)&source_addr);
         }
 
     _error:

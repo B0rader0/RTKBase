@@ -15,6 +15,7 @@
 #include <gps_uart.h>
 #include <tasks.h>
 #include <cJSON.h>
+#include <esp_wifi.h>
 #include "config.h"
 
 #include "esp_netif.h"
@@ -29,7 +30,7 @@ static const char *TAG = "CONFIG";
 // Rather use a string defining the name of the partition and open and close it for each operation,
 // which is safer and more robust.
 
-config_item_t CONFIG_ITEMS[] = {
+const config_item_t CONFIG_ITEMS[] = {
     
     {  // Admin access configuration
         .key = KEY_CONFIG_ADMIN_AUTH, // 0 = open, 1 = basic auth, 2 = hotspot auth - maybe BOOL is enough?
@@ -179,22 +180,22 @@ config_item_t CONFIG_ITEMS[] = {
 
     // UART
     // Do not use UART_NUM0 and GPIO_NUM_1 and GPIO_NUM_3 as default TX and RX pins, as they are used for logging.
-    // Additionally, the board cannot be flashed if the GPS module is soldered
-    // Usin UART_NUM1 but the defult pins need to be redefined as they are connected to flas
+    // Additionally, the board cannot be flashed if the GPS module is soldered to GPIO 1 and GPIO 3, as they are connected to the flash chip. So we use UART_NUM_1 and redefine the default pins to GPIO_NUM_16 and GPIO_NUM_17, which are not used for anything else and are not connected to the flash chip.
+    // Using UART_NUM1 but the default pins need to be redefined as they are connected to flash
     {
         .key = KEY_CONFIG_UART_NUM,
         .type = TYPE_CFG_ITEM_UINT8,
         .def.uint8 = UART_NUM_1
     },
     {
-        .key = KEY_CONFIG_UART_TX_PIN,
-        .type = TYPE_CFG_ITEM_UINT8,
-        .def.uint8 = GPIO_NUM_1
-    },
-    {
         .key = KEY_CONFIG_UART_RX_PIN,
         .type = TYPE_CFG_ITEM_UINT8,
-        .def.uint8 = GPIO_NUM_3
+        .def.uint8 = GPIO_NUM_16
+    },
+    {
+        .key = KEY_CONFIG_UART_TX_PIN,
+        .type = TYPE_CFG_ITEM_UINT8,
+        .def.uint8 = GPIO_NUM_17
     },
     {
         .key = KEY_CONFIG_UART_RTS_PIN,
@@ -345,6 +346,8 @@ esp_err_t cfg_init()
     nvs_handle_t h_config;       // Local handle to the NVS partition, used for reading and writing configuration values. It is opened and closed for each operation, which is safer and more robust than using a global handle.
     config_item_value_t cfg_var; // Local variable used for reading configuration values.
     size_t str_len_var;
+    char str_buf [32];
+    uint8_t mac_buff [6];
 
     esp_err_t res = nvs_flash_init(); // the default partition is used, which is defined in the partition table as "nvs" and has a size of 0.5MB, which should be enough for the configuration values.
 
@@ -357,19 +360,16 @@ esp_err_t cfg_init()
 
     ESP_ERROR_CHECK(res);
 
-    ESP_LOGI(TAG, "BAR - Opening Non-Volatile Storage (NVS) handle");
-
     // A namespace is requred. It is differnet from the partition name.
     res = nvs_open(CONFIG_PREFERENCES, NVS_READWRITE, &h_config);
     ESP_ERROR_CHECK(res);
 
+    esp_wifi_get_mac(WIFI_IF_AP, mac_buff);
+    sprintf(str_buf, "RTKBase_%02X%02X", mac_buff[4], mac_buff[5]);
+    
     // Iterate over all config items and check if they exist in NVS. If not, write the default value to NVS.
     // No need of a separate function as it will be used only here.
     for (unsigned int i = 0; i < sizeof(CONFIG_ITEMS) / sizeof(config_item_t); i++) {
-
-        if (strcmp(CONFIG_ITEMS[i].key, KEY_CONFIG_WIFI_AP_SSID ) == 0) {
-            CONFIG_ITEMS[i].key = "RTK_hello";
-        }
 
         switch (CONFIG_ITEMS[i].type){
             case TYPE_CFG_ITEM_UINT8:
@@ -394,7 +394,11 @@ esp_err_t cfg_init()
                 res = nvs_get_str(h_config, CONFIG_ITEMS[i].key, NULL, &str_len_var); // Get the required buffer size for the string value
                 if (res != ESP_OK) {
                     // If the string doesn't exist in NVS or is corrupted, set it to the default value.
-                    nvs_set_str(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.str);
+                    if (strcmp(CONFIG_ITEMS[i].key, KEY_CONFIG_WIFI_AP_SSID) == 0) {
+                        nvs_set_str(h_config, CONFIG_ITEMS[i].key, str_buf); // Use the generated SSID as the default value for the WiFi AP SSID
+                    } else {
+                        nvs_set_str(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.str);
+                    }
                 }
                 continue;
             default:
@@ -404,11 +408,7 @@ esp_err_t cfg_init()
     } // for
 
     // Commiting the changes to NVS. This is required after writing any value to NVS, otherwise the changes will not be saved and will be lost after a restart.
-    res = nvs_commit(h_config);
-    if (res != ESP_OK)
-        {
-            ESP_LOGE(TAG, "Failed to commit NVS handle: %s", esp_err_to_name(res));
-    }
+    nvs_commit(h_config);
 
     nvs_close(h_config);
 
@@ -439,10 +439,7 @@ esp_err_t cfg_to_json(cJSON *root)
     nvs_handle_t h_config;       // Local handle to the NVS partition, used for reading.
     //config_item_value_t cfg_var; // Local variable used for reading configuration values.
     //size_t str_len_var;
-    //char str_var[256]; // Assuming max string length is 255 characters + null termin
-    uint64_t uint64 = 0;
-    //uint8_t uint8_val = 0;
-    int8_t int8_val = 0;
+    config_item_value_t cfg_value = {0};
 
     size_t length = 0;
     char *str = NULL;
@@ -477,21 +474,21 @@ esp_err_t cfg_to_json(cJSON *root)
                 }
                 continue;
             case TYPE_CFG_ITEM_BOOL:
-            case TYPE_CFG_ITEM_UINT8:
-            case TYPE_CFG_ITEM_UINT16:
-            case TYPE_CFG_ITEM_UINT32:
-                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u64(h_config, CONFIG_ITEMS[i].key, &uint64));
-                asprintf(&str, "%llu", uint64);
-                cJSON_AddStringToObject(root, CONFIG_ITEMS[i].key, str);
-                free(str);
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, CONFIG_ITEMS[i].key, &cfg_value.uint8));
+                cJSON_AddBoolToObject(root, CONFIG_ITEMS[i].key, cfg_value.enabled);
                 continue;
-            /* case TYPE_CFG_ITEM_BOOL:
-            case TYPE_CFG_ITEM_INT8:
-                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_i8(h_config, CONFIG_ITEMS[i].key, &int8_val));
-                asprintf(&str, "%d", int8_val);
-                cJSON_AddStringToObject(root, CONFIG_ITEMS[i].key, str);
-                free(str);
-                continue; */
+            case TYPE_CFG_ITEM_UINT8:
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, CONFIG_ITEMS[i].key, &cfg_value.uint8));
+                cJSON_AddNumberToObject(root, CONFIG_ITEMS[i].key, cfg_value.uint8);
+                continue;
+            case TYPE_CFG_ITEM_UINT16:
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u16(h_config, CONFIG_ITEMS[i].key, &cfg_value.uint16));
+                cJSON_AddNumberToObject(root, CONFIG_ITEMS[i].key, cfg_value.uint16);
+                continue;
+            case TYPE_CFG_ITEM_UINT32:
+                ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u32(h_config, CONFIG_ITEMS[i].key, &cfg_value.uint32));
+                cJSON_AddNumberToObject(root, CONFIG_ITEMS[i].key, cfg_value.uint32);
+                continue;
             default:
                 ESP_LOGE(TAG, "Unknown config item type for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
                 continue;
@@ -549,6 +546,9 @@ esp_err_t cfg_json_to_nvs(cJSON *root)
                         ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u8(h_config, CONFIG_ITEMS[i].key, uint8_value));
                         break;
                     case TYPE_CFG_ITEM_UINT16:
+                        uint16_t uint16_value = atoi(value); //this may be an error if the types do not match
+                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u16(h_config, CONFIG_ITEMS[i].key, uint16_value));
+                        break;
                     case TYPE_CFG_ITEM_UINT32:
                         uint32_t uint32_value = atol(value); //this may be an error if the types do not match
                         ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u32(h_config, CONFIG_ITEMS[i].key, uint32_value));

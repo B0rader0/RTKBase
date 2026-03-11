@@ -17,6 +17,7 @@
 #include <esp_netif_ip_addr.h>
 #include <lwip/lwip_napt.h>
 #include <string.h>
+#include <esp_mac.h>
 #include "wifi.h"
 #include "config.h"
 #include "gps_uart.h"
@@ -323,20 +324,12 @@ void wifi_init() {
         esp_netif_get_ip_info(esp_netif_ap, &ip_info_ap);
 
         config_ap.ap.max_connection = 4;
-        size_t ap_ssid_len = sizeof(config_ap.ap.ssid);
-        // fixme - a specific type needed cfg_get_str(KEY_CONFIG_WIFI_AP_SSID, &config_ap.ap.ssid); //, &ap_ssid_len);
-        ap_ssid_len--; // Remove null terminator from length
-        config_ap.ap.ssid_len = ap_ssid_len;
-        if (ap_ssid_len == 0) {
-            // Generate a default AP SSID based on MAC address and store
-            uint8_t mac[6];
-            esp_wifi_get_mac(WIFI_IF_AP, mac);
-            //snprintf((char *) config_ap.ap.ssid, sizeof(config_ap.ap.ssid), "RTK_Base_BAR"); //temporary, just to compile
-                   // mac[3], mac[4], mac[5]);
-            config_ap.ap.ssid_len = strlen((char *) config_ap.ap.ssid);
-
-            // fixme - not here, but in cfg_init config_set_str(KEY_CONFIG_WIFI_AP_SSID, (char *) config_ap.ap.ssid);
-        }
+        char *buff = NULL;
+        config_ap.ap.ssid_len = 0; // If 0, the SSID is expected to be null-terminated string, and the length will be determined by strlen. This allows for flexibility in how the SSID is stored in the config (e.g. as a fixed-size string with null terminator, or as a separate string with length). If ssid_len is not 0, then the SSID will be read as a byte array of the specified length, which allows for SSIDs that may contain null bytes or are not null-terminated.
+        cfg_get_str(KEY_CONFIG_WIFI_AP_SSID, &buff); //, &ap_ssid_len);
+        strncpy((char *) config_ap.ap.ssid, buff, sizeof(config_ap.ap.ssid));
+        free(buff);
+       
         cfg_get_u8(KEY_CONFIG_WIFI_AP_SSID_HIDDEN, &config_ap.ap.ssid_hidden);
         size_t ap_password_len = sizeof(config_ap.ap.password);
         // fixme - a specific type needed cfg_get_str(KEY_CONFIG_WIFI_AP_PASSWORD, &config_ap.ap.password); //, &ap_password_len);
@@ -346,17 +339,11 @@ void wifi_init() {
         ESP_LOGI(TAG, "WIFI_AP_SSID: %s %s(%s)", config_ap.ap.ssid,
                 config_ap.ap.ssid_hidden ? "(hidden) " : "",
                 ap_password_len == 0 ? "open" : "with password");
-        uart_nmea("$PESP,WIFI,AP,SSID,%s,%c,%c", config_ap.ap.ssid,
-                config_ap.ap.ssid_hidden ? 'H' : 'V',
-                ap_password_len == 0 ? 'O' : 'P');
 
         ESP_LOGI(TAG, "WIFI_AP_IP: ip: " IPSTR "/%d, gw: " IPSTR,
                 IP2STR(&ip_info_ap.ip),
                 ffs(~ip_info_ap.netmask.addr) - 1,
                 IP2STR(&ip_info_ap.gw));
-        uart_nmea("$PESP,WIFI,AP,IP," IPSTR "/%d",
-                IP2STR(&ip_info_ap.ip),
-                ffs(~ip_info_ap.netmask.addr) - 1);
 
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config_ap));
         ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20));

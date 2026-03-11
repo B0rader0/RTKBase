@@ -40,7 +40,6 @@ idf_component_register(
 		esp_ringbuf
 		esp_driver_ledc
 		esp_driver_uart
-		esp_pm
 )
 
 spiffs_create_partition_image(www ../www FLASH_IN_PROJECT)

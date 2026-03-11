@@ -30,7 +30,7 @@
 #include "util.h"
 #include "gps_uart.h"
 
-static const char *TAG = "NTRIP_CLIENT";
+//static const char *TAG = "NTRIP_CLIENT";
 
 #define BUFFER_SIZE 512
 

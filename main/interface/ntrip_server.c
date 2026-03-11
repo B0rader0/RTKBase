@@ -76,7 +76,7 @@ static void ntrip_server_uart_handler(void* handler_args, esp_event_base_t base,
     }
 }
 
-static void ntrip_server_sleep_task(void *ctx) {
+/* static void ntrip_server_sleep_task(void *ctx) {
     vTaskSuspend(NULL);
 
     while (true) {
@@ -88,7 +88,7 @@ static void ntrip_server_sleep_task(void *ctx) {
         data_keep_alive += NTRIP_KEEP_ALIVE_THRESHOLD / 10;
         vTaskDelay(pdMS_TO_TICKS(NTRIP_KEEP_ALIVE_THRESHOLD / 10));
     }
-}
+} */
 
 static void ntrip_server_task(void *ctx) 
 {

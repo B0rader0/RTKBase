@@ -76,7 +76,6 @@ static socket_client_t * socket_client_add(int sock, struct sockaddr_in6 addr, i
 
     char *addr_str = sockaddrtostr((struct sockaddr *) &addr);
     ESP_LOGI(TAG, "Accepted %s client %s", SOCKTYPE_NAME(socktype), addr_str);
-    uart_nmea("$PESP,SOCK,SRV,%s,CONNECTED,%s", SOCKTYPE_NAME(socktype), addr_str);
 
     return client;
 }
@@ -84,7 +83,6 @@ static socket_client_t * socket_client_add(int sock, struct sockaddr_in6 addr, i
 static void socket_client_remove(socket_client_t *socket_client) {
     char *addr_str = sockaddrtostr((struct sockaddr *) &socket_client->addr);
     ESP_LOGI(TAG, "Disconnected %s client %s", SOCKTYPE_NAME(socket_client->type), addr_str);
-    uart_nmea("$PESP,SOCK,SRV,%s,DISCONNECTED,%s", SOCKTYPE_NAME(socket_client->type), addr_str);
 
     destroy_socket(&socket_client->socket);
 
@@ -106,7 +104,7 @@ static void socket_server_uart_handler(void* handler_args, esp_event_base_t base
     }
 }
 
-static int socket_init(int socktype, int port) {
+/* static int socket_init(int socktype, int port) {
     int sock = socket(PF_INET6, socktype, 0);
     ERROR_ACTION(TAG, sock < 0, return -1, "Could not create %s socket: %d %s", SOCKTYPE_NAME(socktype), errno, strerror(errno))
 
@@ -124,11 +122,10 @@ static int socket_init(int socktype, int port) {
     ERROR_ACTION(TAG, err != 0, close(sock); return -1, "Could not bind %s socket: %d %s", SOCKTYPE_NAME(socktype), errno, strerror(errno))
 
     ESP_LOGI(TAG, "%s socket listening on port %d", SOCKTYPE_NAME(socktype), port);
-    uart_nmea("$PESP,SOCK,SRV,%s,BIND,%d", SOCKTYPE_NAME(socktype), port);
 
     return sock;
 }
-
+ */
 static esp_err_t socket_tcp_init() {
     /* int port = config_get_u16(CONF_ITEM(KEY_CONFIG_SOCKET_SERVER_TCP_PORT));
 
@@ -200,6 +197,9 @@ static esp_err_t socket_udp_client_accept(struct sockaddr_in6 source_addr) {
 static esp_err_t socket_udp_accept() {
     struct sockaddr_in6 source_addr;
     socklen_t socklen = sizeof(source_addr);
+    uint8_t uart_port = 0; 
+ 
+    cfg_get_u8(KEY_CONFIG_UART_NUM, &uart_port);
 
     // Receive until nothing left to receive
     int len;
@@ -209,7 +209,7 @@ static esp_err_t socket_udp_accept() {
 
         stream_stats_increment(stream_stats, len, 0);
 
-        uart_write(buffer, len);
+        uart_write(uart_port, buffer, len);
     }
 
     // Error occurred during receiving
@@ -223,6 +223,10 @@ static esp_err_t socket_udp_accept() {
 
 static void socket_clients_receive(fd_set *socket_set) {
     socket_client_t *client, *client_tmp;
+    uint8_t uart_port = 0;
+    
+    cfg_get_u8(KEY_CONFIG_UART_NUM, &uart_port);
+
     SLIST_FOREACH_SAFE(client, &socket_client_list, next, client_tmp) {
         if (!FD_ISSET(client->socket, socket_set)) continue;
 
@@ -231,7 +235,7 @@ static void socket_clients_receive(fd_set *socket_set) {
         while ((len = recv(client->socket, buffer, BUFFER_SIZE, MSG_DONTWAIT)) > 0) {
             stream_stats_increment(stream_stats, len, 0);
 
-            uart_write(buffer, len);
+            uart_write(uart_port, buffer, len);
         }
 
         // Remove on error

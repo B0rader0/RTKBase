@@ -5,14 +5,14 @@
 ESP_EVENT_DECLARE_BASE(UART_EVENT_READ);
 ESP_EVENT_DECLARE_BASE(UART_EVENT_WRITE);
 
-#define UART_BUFFER_SIZE 4096
+#define UART_BUFFER_SIZE (1024 * 2)
 
 esp_err_t uart_init();
 
 void uart_inject(void *data, size_t len);
-int uart_log(char *buffer, size_t len);
-int uart_nmea(const char *fmt, ...);
-int uart_write(char *buffer, size_t len);
+int uart_log(uint8_t uart_port, char *buffer, size_t len);
+//int uart_nmea(const char *fmt, ...);
+int uart_write(uint8_t uart_port, char *buffer, size_t len);
 
 void uart_register_read_handler(esp_event_handler_t event_handler);
 void uart_register_write_handler(esp_event_handler_t event_handler);

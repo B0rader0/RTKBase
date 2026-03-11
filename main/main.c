@@ -57,18 +57,19 @@ void app_main()
     // cleared and the device restarts. 
     // The idea to use the built LED does not work because the LED is not controllable.
     reset_button_init();
- 
+    
     // Initialize NVS with default values if they don't exist already in NVS
     // When the values are later needed, they are read from NVS (where they shoud exist)!
     cfg_init();
+    ESP_LOGI(TAG, "Config initialized successfully");   
     
-    //stream_stats_init();
+    stream_stats_init();
+    ESP_LOGI(TAG, "Stream stats initialized successfully");
 
-    
-    uart_init();
-
-    /* esp_reset_reason_t reset_reason = esp_reset_reason();
-
+    uart_init(); // UART uses stats an init, so call it after stats init
+    //ESP_LOGI(TAG, "UART initialized successfully");
+   
+    esp_reset_reason_t reset_reason = esp_reset_reason();
 
     ESP_LOGI(TAG, "╔══════════════════════════════════════════════╗");
     ESP_LOGI(TAG, "║ Reset reason: %-30s "                       "║", reset_reason_name(reset_reason));
@@ -77,27 +78,63 @@ void app_main()
     esp_event_loop_create_default();
 
     net_init();
+    ESP_LOGI(TAG, "Network initialized successfully");
+    vTaskDelay(pdMS_TO_TICKS(500));
+   
     wifi_init();
-
+    ESP_LOGI(TAG, "WiFi initialized successfully");
+    vTaskDelay(pdMS_TO_TICKS(500));
+   
     web_server_init();
+    ESP_LOGI(TAG, "Web server initialized successfully");
+    vTaskDelay(pdMS_TO_TICKS(500));
+   
 
-    ntrip_caster_init();
+    char writebuff [128];
+    
+    for (;;) {
+
+        strcpy(writebuff, "Writing to UART from main loop\r\n");
+        uart_write_bytes(1 , writebuff, strlen(writebuff));
+
+        ESP_LOGI(TAG, "Writing to UART from main loop\r\n");
+
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+ 
+    /* ntrip_caster_init();
+    ESP_LOGI(TAG, "NTRIP caster initialized successfully");
+    vTaskDelay(pdMS_TO_TICKS(500));
+
     ntrip_server_init();
+    ESP_LOGI(TAG, "NTRIP server initialized successfully");
+    vTaskDelay(pdMS_TO_TICKS(500));
+   
+
     ntrip_client_init();
+    ESP_LOGI(TAG, "NTRIP client initialized successfully");
+    vTaskDelay(pdMS_TO_TICKS(500));
+   
+
 
     socket_server_init();
+    ESP_LOGI(TAG, "Socket server initialized successfully");
+    vTaskDelay(pdMS_TO_TICKS(500));
+   
+
     socket_client_init();
-
-    uart_nmea("$PESP,INIT,COMPLETE");
-
+    ESP_LOGI(TAG, "Socket client initialized successfully");
+    vTaskDelay(pdMS_TO_TICKS(500));
+   
+ */
     wait_for_ip();
 
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL); 
     esp_sntp_setservername(0, "pool.ntp.org"); 
     sntp_set_sync_mode(SNTP_SYNC_MODE_SMOOTH);
     sntp_set_time_sync_notification_cb(sntp_time_set_handler);
-    esp_sntp_init(); 
- */
+    esp_sntp_init();
+ 
 }  // app_main
 
 // Helper function to convert reset reason enum to string for logging purposes
