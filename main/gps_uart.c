@@ -18,13 +18,12 @@
 
 static const char *TAG = "UART";
 
-#define MAX_LINE_LEN 102 // Maximum length of a line (NMEA sentence) that we expect to receive. The actual maximum length of an NMEA sentence is 82 characters, but we can set it to a higher value to be safe and to allow for any additional data that might be included in the line.
-#define LINE_TIMEOUT_MS  200   // Time to wait for \n after receiving \r 
-#define EVENT_QUEUE_SIZE   64  // Buffer for bursts of lines
+// The version command returns 120 bytes of data, so we set a larger buffer. The config com1/2/3 commands return 80 bytes of data, so the buffer size is also sufficient for them. If we receive more than 256 bytes in a single line, it will be truncated, but this should not happen with the expected commands.
+#define MAX_LINE_LEN 150 // Maximum length of a line (NMEA sentence) that we expect to receive. The actual maximum length of an NMEA sentence is 82 characters, but we can set it to a higher value to be safe and to allow for any additional data that might be included in the line.
+#define EVENT_QUEUE_SIZE   32  // Buffer for bursts of lines
+#define UART_BUFFER_SIZE (1024) // Size of the UART driver's internal buffer for incoming data. This should be large enough to hold the expected bursts of data without overflowing. The actual size needed depends on the expected data rate and how quickly we process incoming lines.
  
 #define PATTERN_CHR_NUM    (1)         /*!< Set the number of consecutive and identical characters received by receiver which defines a UART pattern*/
-
-#define RD_BUF_SIZE (MAX_LINE_LEN)
 
 
 // --- Event Definitions ---
@@ -43,6 +42,8 @@ static QueueHandle_t uart_queue;
 // not used for now static esp_timer_handle_t timeout_timer;
 static esp_event_loop_handle_t gps_event_loop;
 static uint8_t gps_port = 0; // Default UART port, can be set from NVS
+char gps_line_buffer[MAX_LINE_LEN]; // Buffer to accumulate incoming data until a full line is received
+size_t gps_line_buffer_pos = 0; // Used to stitch DATA event to DET
 
 // legacy - check if needed
 static bool uart_log_forward = false;
@@ -74,23 +75,18 @@ static void uart_event_reader_task(void *pvParameters)
 {
     uart_event_t event;
     size_t buffered_size;
-    uint8_t* dtmp = (uint8_t*) malloc(RD_BUF_SIZE);
-    assert(dtmp);
+    //uint8_t* dtmp = (uint8_t*) malloc(RD_BUF_SIZE);
+    // assert(dtmp);
     for (;;) {
         //Waiting for UART event.
         if (xQueueReceive(uart_queue, (void *)&event, (TickType_t)portMAX_DELAY)) {
-            bzero(dtmp, RD_BUF_SIZE);
-            ESP_LOGI(TAG, "uart[%d] event:", gps_port);
+            // not here, wll break the stitching bzero(gps_line_buffer, sizeof(gps_line_buffer));
+            ESP_LOGI(TAG, "uart: %d, event: %d, size: %d, timeout_flag: %d", gps_port, event.type, event.size, event.timeout_flag);
             switch (event.type) {
-            //Event of UART receiving data
-            /*We'd better handler data event fast, there would be much more data events than
-            other types of events. If we take too much time on data event, the queue might
-            be full.*/
-            case UART_DATA:
-                ESP_LOGI(TAG, "[UART DATA]: %d", event.size);
-                uart_read_bytes(gps_port, dtmp, event.size, portMAX_DELAY);
-                ESP_LOGI(TAG, "[DATA EVT]:");
-                //uart_write_bytes(gps_port, (const char*) dtmp, event.size); // why??
+            case UART_DATA: // not sure this is correct, because we are using pattern detect, so we should receive UART_PATTERN_DET events instead of UART_DATA events. Check if this is working as expected.
+                uart_read_bytes(gps_port, gps_line_buffer, event.size, portMAX_DELAY);
+                gps_line_buffer[event.size] = '\0'; // Null-terminate the buffer to make it a valid C string
+                ESP_LOGI(TAG, "UART_DATA: size: %d, string: %s", event.size, gps_line_buffer);
                 break;
             //Event of HW FIFO overflow detected
             case UART_FIFO_OVF:
@@ -103,7 +99,7 @@ static void uart_event_reader_task(void *pvParameters)
                 break;
             //Event of UART ring buffer full
             case UART_BUFFER_FULL:
-                ESP_LOGI(TAG, "ring buffer full");
+                ESP_LOGI(TAG, "UART_BUFFER_FULL");
                 // If buffer full happened, you should consider increasing your buffer size
                 // As an example, we directly flush the rx buffer here in order to read more data.
                 uart_flush_input(gps_port);
@@ -111,44 +107,41 @@ static void uart_event_reader_task(void *pvParameters)
                 break;
             //Event of UART RX break detected
             case UART_BREAK:
-                ESP_LOGI(TAG, "uart rx break");
+                ESP_LOGI(TAG, "UART_BREAK");
                 break;
             //Event of UART parity check error
             case UART_PARITY_ERR:
-                ESP_LOGI(TAG, "uart parity error");
+                ESP_LOGI(TAG, "UART_PARITY_ERR");
                 break;
             //Event of UART frame error
             case UART_FRAME_ERR:
-                ESP_LOGI(TAG, "uart frame error");
+                ESP_LOGI(TAG, "UART_FRAME_ERR");
                 break;
             //UART_PATTERN_DET
             case UART_PATTERN_DET:
+
                 uart_get_buffered_data_len(gps_port, &buffered_size);
                 int pos = uart_pattern_pop_pos(gps_port);
-                ESP_LOGI(TAG, "[UART PATTERN DETECTED] pos: %d, buffered size: %d", pos, buffered_size);
+                ESP_LOGI(TAG, "UART_PATTERN_DET pos: %d, buffered size: %d", pos, buffered_size);
                 if (pos == -1) {
                     // There used to be a UART_PATTERN_DET event, but the pattern position queue is full so that it can not
                     // record the position. We should set a larger queue size.
                     // As an example, we directly flush the rx buffer here.
                     uart_flush_input(gps_port);
                 } else {
-                    uart_read_bytes(gps_port, dtmp, pos, 100 / portTICK_PERIOD_MS);
-                    uint8_t pat[PATTERN_CHR_NUM + 1];
-                    memset(pat, 0, sizeof(pat));
-                    uart_read_bytes(gps_port, pat, PATTERN_CHR_NUM, 100 / portTICK_PERIOD_MS);
-                    ESP_LOGI(TAG, "read data: %s", dtmp);
-                    //ESP_LOGI(TAG, "read pat : %s", pat);
+                    uart_read_bytes(gps_port, gps_line_buffer, pos, 100 / portTICK_PERIOD_MS);
+                    gps_line_buffer[pos] = '\0'; // Null-terminate the buffer to make it a valid C string
+
+                    ESP_LOGI(TAG, "UART_PATTERN_DET: string:%s", gps_line_buffer);
                 }
-                break;
-            //Others
+                break;                
+            // Others
             default:
                 ESP_LOGI(TAG, "uart event type: %d", event.type);
                 break;
             }
         }
     }
-    free(dtmp);
-    dtmp = NULL;
     vTaskDelete(NULL);
 }
 
@@ -307,6 +300,8 @@ esp_err_t uart_init()
     // A. Setup Event Loop with custom queue size for bursts
     // The received GSM messages will be posted to this event loop, 
     // and all the tasks that want to receive the messages will subscribe to this event loop.
+    // This is created before the UART driver is set up, so that we can post events to it from the UART event reader task 
+    // as soon as we start receiving data from the GPS.
     esp_event_loop_args_t loop_args = {
         .queue_size = EVENT_QUEUE_SIZE,
         .task_name = "gps_evt_loop_task",
@@ -317,7 +312,7 @@ esp_err_t uart_init()
     ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &gps_event_loop));
  
     /* 
-    // Not working for the moment
+    // Commented because is not working for the moment
     // B. Setup Timeout Timer
     const esp_timer_create_args_t timer_args = {
         .callback = &line_timeout_callback,
@@ -329,29 +324,24 @@ esp_err_t uart_init()
     // C. Setup UART
     // uart_config is already populated with the values read from NVS. 
     // We just need to call the UART driver functions to apply the configuration and set up the UART.
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_driver_install(gps_port, UART_BUFFER_SIZE, UART_BUFFER_SIZE, 40, &uart_queue, 0));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_driver_install(gps_port, UART_BUFFER_SIZE * 2, UART_BUFFER_SIZE * 2, 20, &uart_queue, 0));
     ESP_ERROR_CHECK_WITHOUT_ABORT(uart_param_config(gps_port, &uart_config)); 
     ESP_ERROR_CHECK_WITHOUT_ABORT(uart_set_pin(gps_port, pin_tx, pin_rx, pin_rts, pin_cts));
    
     // D. Enable Pattern Detect for '\n' (ASCII 10)
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_enable_pattern_det_baud_intr(gps_port, '\n', 1, 9, 0, 0)); // What are the correct parameters?
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_set_rx_timeout(gps_port, 100)); //
+    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_enable_pattern_det_baud_intr(gps_port, '\n', PATTERN_CHR_NUM, 9, 0, 0)); // 9 What are the correct parameters?
+    
+    //Reset the pattern queue length to record at most 20 pattern positions.
     ESP_ERROR_CHECK_WITHOUT_ABORT(uart_pattern_queue_reset(gps_port, 20));//
- 
-    // E. Add Subscribers to the Pool
-    /* esp_event_handler_instance_register(UART_EVENTS, UART_EVENT_LINE_RECEIVED, &on_uart_received, "DisplayTask", NULL);
-    esp_event_handler_instance_register(UART_EVENTS, UART_EVENT_LINE_RECEIVED, &on_uart_received, "LoggerTask", NULL);
-    esp_event_handler_instance_register(UART_EVENTS, UART_EVENT_LINE_RECEIVED, &on_uart_received, "SD_CardTask", NULL);
-    esp_event_handler_instance_register(UART_EVENTS, UART_EVENT_LINE_RECEIVED, &on_uart_received, "MQTTTask", NULL);
-    esp_event_handler_instance_register(UART_EVENTS, UART_EVENT_LINE_RECEIVED, &on_uart_received, "LogicTask", NULL);
-    esp_event_handler_instance_register(UART_EVENTS, UART_EVENT_LINE_RECEIVED, &on_uart_received, "DebugTask", NULL);
-  */
-    // F. Start the Processing Task. It reads events from the UART driver.
-    xTaskCreate(uart_event_reader_task, "uart_event_reader", 4096, &gps_port, 12, NULL);
+    
+    // not in the example
+    //ESP_ERROR_CHECK_WITHOUT_ABORT(uart_set_rx_timeout(gps_port, 100)); //126 is MAX value. used to be 100, but it seems that it is not enough for some lines, so we set it to 200. Check if this is working as expected.
+    
+    
+    //Create a task to handler UART event from ISR
+    xTaskCreate(uart_event_reader_task, "uart_event_reader", 4096, NULL, 12, NULL);
     
     //stream_stats = stream_stats_new("uart");
-
-    //xTaskCreate(uart_reader, "uart_reader", 8192, &uart_port, TASK_PRIORITY_UART, NULL);
 
     return ESP_OK;
 } // uart_init

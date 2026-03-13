@@ -94,13 +94,27 @@ void app_main()
     
     for (;;) {
 
-        strcpy(writebuff, "Writing to UART from main loop\r\n");
+        strcpy(writebuff, "version\r\n");
         uart_write_bytes(1 , writebuff, strlen(writebuff));
+        vTaskDelay(pdMS_TO_TICKS(3000));
 
-        ESP_LOGI(TAG, "Writing to UART from main loop\r\n");
+        strcpy(writebuff, "config com1\r\n");
+        uart_write_bytes(1 , writebuff, strlen(writebuff));
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        
+        strcpy(writebuff, "config com2\r\n");
+        uart_write_bytes(1 , writebuff, strlen(writebuff));
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        
+        strcpy(writebuff, "config com3\r\n");
+        uart_write_bytes(1 , writebuff, strlen(writebuff));
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        
+        
+        
+        //ESP_LOGI(TAG, "Writing to UART from main loop\r\n");
 
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
+    } // infinite for
  
     /* ntrip_caster_init();
     ESP_LOGI(TAG, "NTRIP caster initialized successfully");
