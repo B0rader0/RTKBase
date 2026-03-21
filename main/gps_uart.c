@@ -19,7 +19,7 @@
 static const char *TAG = "UART";
 
 // The version command returns 120 bytes of data, so we set a larger buffer. The config com1/2/3 commands return 80 bytes of data, so the buffer size is also sufficient for them. If we receive more than 256 bytes in a single line, it will be truncated, but this should not happen with the expected commands.
-#define MAX_LINE_LEN 150 // Maximum length of a line (NMEA sentence) that we expect to receive. The actual maximum length of an NMEA sentence is 82 characters, but we can set it to a higher value to be safe and to allow for any additional data that might be included in the line.
+#define MAX_LINE_LEN 250 // Maximum length of a line (NMEA sentence) that we expect to receive. The actual maximum length of an NMEA sentence is 82 characters, but we can set it to a higher value to be safe and to allow for any additional data that might be included in the line.
 #define EVENT_QUEUE_SIZE   32  // Buffer for bursts of lines
 #define UART_BUFFER_SIZE (1024) // Size of the UART driver's internal buffer for incoming data. This should be large enough to hold the expected bursts of data without overflowing. The actual size needed depends on the expected data rate and how quickly we process incoming lines.
  
@@ -27,9 +27,9 @@ static const char *TAG = "UART";
 
 
 // --- Event Definitions ---
-ESP_EVENT_DEFINE_BASE(GPS_EVENTS);
+ESP_EVENT_DEFINE_BASE(NTRIP_EVENTS);
 enum {
-    GPS_EVENT_LINE_RECEIVED 
+    NTRIP_EVENT_LINE_RECEIVED 
 };
  
 typedef struct {
@@ -38,29 +38,27 @@ typedef struct {
 } uart_data_t;
  
 // --- Globals ---
-static QueueHandle_t uart_queue;
-// not used for now static esp_timer_handle_t timeout_timer;
-static esp_event_loop_handle_t gps_event_loop;
-static uint8_t gps_port = 0; // Default UART port, can be set from NVS
-char gps_line_buffer[MAX_LINE_LEN]; // Buffer to accumulate incoming data until a full line is received
-size_t gps_line_buffer_pos = 0; // Used to stitch DATA event to DET
+static QueueHandle_t uart_queue; // Queue to receive UART events from the ISR
+static esp_event_loop_handle_t ntrip_event_loop; // Event loop for the received and stitched NTRIP messages
+static uint8_t gps_port = 0;        // Default UART port, is set from NVS in uart_init().
+
+static char ntrip_line_buffer[MAX_LINE_LEN]; // Buffer to accumulate incoming data until a full line is received
+static int empty_pos = 0;     // Used to stitch DATA event to DET
+    
 
 // legacy - check if needed
 static bool uart_log_forward = false;
 //static stream_stats_handle_t stream_stats;
 
- 
-// --- 1. Timeout Cleanup ---
-// If \n doesn't arrive shortly after \r, we ignore the corrupted data.
-void line_timeout_callback(void* arg) {
-    //uint8_t uart_port = *(uint8_t*)arg;
-    
-    //ESP_LOGW(TAG, "line_timeout_callback triggered. Flushing UART%d input buffer.", uart_port);
-    uart_flush_input(gps_port);
-    uart_pattern_queue_reset(gps_port, 20);
+// To start listening:
+void ntrip_handler_register(esp_event_handler_t event_handler) {
+    esp_event_handler_register_with(ntrip_event_loop, NTRIP_EVENTS, NTRIP_EVENT_LINE_RECEIVED, event_handler, NULL);
 }
- 
-// --- 2. Subscriber Callback ---
+  
+void ntrip_handler_unregister(esp_event_handler_t event_handler) {
+    esp_event_handler_unregister_with(ntrip_event_loop, NTRIP_EVENTS, NTRIP_EVENT_LINE_RECEIVED, event_handler);
+}
+
 // This is the "Pool" logic. Every registered task executes this.
 void on_uart_received(void* handler_args, esp_event_base_t base, int32_t id, void* event_data) {
     uart_data_t* data = (uart_data_t*) event_data;
@@ -70,70 +68,94 @@ void on_uart_received(void* handler_args, esp_event_base_t base, int32_t id, voi
     ESP_LOGI(TAG, "Subscriber [%s] processing: %s", task_id, data->str);
 }
  
-// --- 3. The UART Processing Task ---
+// ---  The UART Processing Task ---
 static void uart_event_reader_task(void *pvParameters)
 {
     uart_event_t event;
-    size_t buffered_size;
-    //uint8_t* dtmp = (uint8_t*) malloc(RD_BUF_SIZE);
-    // assert(dtmp);
+    int bytes_read;
+    
+    // uart_read_bytes - portMAX_DELAY or 100 / portTICK_PERIOD_MS????
     for (;;) {
         //Waiting for UART event.
-        if (xQueueReceive(uart_queue, (void *)&event, (TickType_t)portMAX_DELAY)) {
-            // not here, wll break the stitching bzero(gps_line_buffer, sizeof(gps_line_buffer));
-            ESP_LOGI(TAG, "uart: %d, event: %d, size: %d, timeout_flag: %d", gps_port, event.type, event.size, event.timeout_flag);
+        if (xQueueReceive(uart_queue, (void *)&event, (TickType_t) portMAX_DELAY)) {
+
             switch (event.type) {
-            case UART_DATA: // not sure this is correct, because we are using pattern detect, so we should receive UART_PATTERN_DET events instead of UART_DATA events. Check if this is working as expected.
-                uart_read_bytes(gps_port, gps_line_buffer, event.size, portMAX_DELAY);
-                gps_line_buffer[event.size] = '\0'; // Null-terminate the buffer to make it a valid C string
-                ESP_LOGI(TAG, "UART_DATA: size: %d, string: %s", event.size, gps_line_buffer);
+            case UART_DATA: 
+                
+                // Sore data at the beginning of the buffer
+                empty_pos = uart_read_bytes(gps_port, ntrip_line_buffer, event.size, portMAX_DELAY);
+
+                // never happnes, the problem is elsewhere.
+                if (empty_pos != event.size) {
+                    ESP_LOGW(TAG, "UART_DATA: event.size %d, empty_pos: %d", event.size, empty_pos);
+                }
+
+                // the below never happens, so the problem is somewhere else.
+                if (empty_pos < 0 || empty_pos >= MAX_LINE_LEN) {
+                    ESP_LOGW(TAG, "UART_DATA: empty_pos out of range: %d", empty_pos);
+                    empty_pos = 0; // Reset the buffer position to the beginning of the buffer to avoid overflow
+                }
+                
+                
+                ntrip_line_buffer[empty_pos] = '\0'; // Null-terminate the buffer to make it a valid C string for debug purposes
+
+                //ESP_LOGI(TAG, "UART_DATA: string: %s", ntrip_line_buffer);
+
                 break;
-            //Event of HW FIFO overflow detected
+
             case UART_FIFO_OVF:
-                ESP_LOGI(TAG, "hw fifo overflow");
-                // If fifo overflow happened, you should consider adding flow control for your application.
-                // The ISR has already reset the rx FIFO,
-                // As an example, we directly flush the rx buffer here in order to read more data.
-                uart_flush_input(gps_port);
-                xQueueReset(uart_queue);
-                break;
-            //Event of UART ring buffer full
             case UART_BUFFER_FULL:
-                ESP_LOGI(TAG, "UART_BUFFER_FULL");
+            ESP_LOGE(TAG, "UART_BUFFER_FULL or OVERFLOW");
                 // If buffer full happened, you should consider increasing your buffer size
                 // As an example, we directly flush the rx buffer here in order to read more data.
                 uart_flush_input(gps_port);
                 xQueueReset(uart_queue);
+                empty_pos = 0; // Reset the buffer position to the beginning of the buffer
                 break;
             //Event of UART RX break detected
             case UART_BREAK:
-                ESP_LOGI(TAG, "UART_BREAK");
-                break;
-            //Event of UART parity check error
             case UART_PARITY_ERR:
-                ESP_LOGI(TAG, "UART_PARITY_ERR");
-                break;
-            //Event of UART frame error
             case UART_FRAME_ERR:
-                ESP_LOGI(TAG, "UART_FRAME_ERR");
                 break;
-            //UART_PATTERN_DET
+
             case UART_PATTERN_DET:
+                
+                int pattern_pos;
+                
+                while ((pattern_pos = uart_pattern_pop_pos(gps_port)) != -1) {
+                    
+                    // Do not wait!!!
+                    bytes_read = uart_read_bytes(gps_port, ntrip_line_buffer + empty_pos, pattern_pos + PATTERN_CHR_NUM, portMAX_DELAY);//0); //100 / portTICK_PERIOD_MS);
+                    
+                    if (bytes_read != (pattern_pos + PATTERN_CHR_NUM)) {
+                        ESP_LOGW(TAG, "ERROR!!!");
+                    }
 
-                uart_get_buffered_data_len(gps_port, &buffered_size);
-                int pos = uart_pattern_pop_pos(gps_port);
-                ESP_LOGI(TAG, "UART_PATTERN_DET pos: %d, buffered size: %d", pos, buffered_size);
-                if (pos == -1) {
-                    // There used to be a UART_PATTERN_DET event, but the pattern position queue is full so that it can not
-                    // record the position. We should set a larger queue size.
-                    // As an example, we directly flush the rx buffer here.
-                    uart_flush_input(gps_port);
-                } else {
-                    uart_read_bytes(gps_port, gps_line_buffer, pos, 100 / portTICK_PERIOD_MS);
-                    gps_line_buffer[pos] = '\0'; // Null-terminate the buffer to make it a valid C string
+                    ntrip_line_buffer[empty_pos + pattern_pos + PATTERN_CHR_NUM] = '\0'; // Null-terminate the buffer to make it a valid C string
+                    
+                    // Filter invalid lines
+                    if (strlen(ntrip_line_buffer) < 3) {
+                        uart_flush_input(gps_port); // Flush the input buffer to clear any remaining data
+                        empty_pos = 0; // Reset the buffer position to the beginning of the buffer
+                        break;
+                    }
+                    
+                    if (ntrip_line_buffer[strlen(ntrip_line_buffer) - 1] != '\n' || ntrip_line_buffer[strlen(ntrip_line_buffer) - 2] != '\r') {
+                        uart_flush_input(gps_port); // Flush the input buffer to clear any remaining data
+                        empty_pos = 0; // Reset the buffer position to the beginning of the buffer
+                        break;
+                    }
+                    
+                    empty_pos = 0; // Reset the buffer position to the beginning of the buffer for the next line. We have already read the line into the buffer, so we can reset the position for the next line.
+                    
+                    // send an extra byte, set to 0, to ensure that the string is null-terminated when received by the handlers.
+                    esp_event_post_to(ntrip_event_loop, NTRIP_EVENTS, NTRIP_EVENT_LINE_RECEIVED, ntrip_line_buffer, strlen(ntrip_line_buffer) + 1, portMAX_DELAY);
+                    
+                } // while
 
-                    ESP_LOGI(TAG, "UART_PATTERN_DET: string:%s", gps_line_buffer);
-                }
+                empty_pos = 0; //better?
+                // do not flush uart here !!!        
+
                 break;                
             // Others
             default:
@@ -144,77 +166,6 @@ static void uart_event_reader_task(void *pvParameters)
     }
     vTaskDelete(NULL);
 }
-
-
-/* proposed by Gemini, commentedout
-static void uart_event_reader(void *pvParameters) {
-    uart_event_t event;
-    uint8_t uart_port = *(uint8_t*)pvParameters; // The UART port number is passed as a parameter
-
-    //ESP_LOGI(TAG, "UART Event Reader started on UART%d", uart_port);
-   
-    for (;;) {
-        // Wait for UART Hardware Events
-        if (xQueueReceive(uart_queue, (void *)&event, portMAX_DELAY)) {
-
-            switch (event.type) {
-               
-                case UART_PATTERN_DET:
-                    // Full CRLF found! Stop the "Ignore" timer.
-                    esp_timer_stop(timeout_timer);
-                   
-                    int pos;
-                    while ((pos = uart_pattern_pop_pos(uart_port)) != -1) {
-                        uart_data_t msg = {0};
-                       
-                        // Read exactly up to the \n (pos + 1)
-                        int read_len = uart_read_bytes(uart_port, (uint8_t*)msg.str, pos + 1, 0);
-                       
-                        if (read_len >= 2) {
-                            // Strip \r\n and null-terminate
-                            msg.str[read_len - 2] = '\0';
-                            msg.len = read_len - 2;
-                           
-                            // Broadcast to all 6 tasks (Event Loop copies the 32 bytes)
-                            esp_event_post(UART_EVENTS, UART_EVENT_LINE_RECEIVED, &msg, sizeof(msg), pdMS_TO_TICKS(10));
-                        } 
-
-                        // NULL terminate and set length (including \r\n)
-                        if (read_len > 0) {
-                            msg.str[read_len] = '\0';
-                            msg.len = read_len;
-                            // Broadcast to all 6 tasks (Event Loop copies the 32 bytes)
-                            esp_event_post(UART_EVENTS, UART_EVENT_LINE_RECEIVED, &msg, sizeof(msg), pdMS_TO_TICKS(10));
-                        }
-
-                    }
-                    break;
- 
-                case UART_DATA:
-                    // Potential start of a line. Start the watchdog timer.
-                    if (!esp_timer_is_active(timeout_timer)) {
-                        esp_timer_start_once(timeout_timer, LINE_TIMEOUT_MS * 1000);
-                    }
-                    break;
- 
-                case UART_FIFO_OVF:
-                case UART_BUFFER_FULL:
-                case UART_FRAME_ERR:
-                case UART_PARITY_ERR:
-                    // Hardware-level corruption or overflow: Ignore and Reset
-                    //ESP_LOGE(TAG, "UART Error/Overflow. Resetting buffer.");
-                    esp_timer_stop(timeout_timer);
-                    uart_flush_input(uart_port);
-                    uart_pattern_queue_reset(uart_port, 20);
-                    break;
- 
-                default:
-                    break;
-            }
-        }
-    }
-} // uart_event_reader
- */
 
 /* void uart_register_read_handler(esp_event_handler_t event_handler)
 {
@@ -309,19 +260,10 @@ esp_err_t uart_init()
         .task_stack_size = 3072,
         .task_core_id = tskNO_AFFINITY
     };
-    ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &gps_event_loop));
+    ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &ntrip_event_loop));
  
-    /* 
-    // Commented because is not working for the moment
-    // B. Setup Timeout Timer
-    const esp_timer_create_args_t timer_args = {
-        .callback = &line_timeout_callback,
-        .name = "gps_timeout"
-    };
-    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &timeout_timer));
-  */
 
-    // C. Setup UART
+    // Setup UART
     // uart_config is already populated with the values read from NVS. 
     // We just need to call the UART driver functions to apply the configuration and set up the UART.
     ESP_ERROR_CHECK_WITHOUT_ABORT(uart_driver_install(gps_port, UART_BUFFER_SIZE * 2, UART_BUFFER_SIZE * 2, 20, &uart_queue, 0));
@@ -334,10 +276,6 @@ esp_err_t uart_init()
     //Reset the pattern queue length to record at most 20 pattern positions.
     ESP_ERROR_CHECK_WITHOUT_ABORT(uart_pattern_queue_reset(gps_port, 20));//
     
-    // not in the example
-    //ESP_ERROR_CHECK_WITHOUT_ABORT(uart_set_rx_timeout(gps_port, 100)); //126 is MAX value. used to be 100, but it seems that it is not enough for some lines, so we set it to 200. Check if this is working as expected.
-    
-    
     //Create a task to handler UART event from ISR
     xTaskCreate(uart_event_reader_task, "uart_event_reader", 4096, NULL, 12, NULL);
     
@@ -345,32 +283,3 @@ esp_err_t uart_init()
 
     return ESP_OK;
 } // uart_init
-
-
-/* void uart_inject(void *buf, size_t len)
-{
-    esp_event_post(UART_EVENT_READ, len, buf, len, portMAX_DELAY);
-}
-
-int uart_log(uint8_t uart_port, char *buf, size_t len)
-{
-    if (!uart_log_forward)
-        return 0;
-    return uart_write(uart_port, buf, len);
-}
-
-int uart_write(uint8_t uart_port, char *buf, size_t len)
-{
-    if (len == 0)
-        return 0;
-
-    int written = uart_write_bytes(uart_port, buf, len);
-    if (written < 0)
-        return written;
-
-    stream_stats_increment(stream_stats, 0, len);
-
-    esp_event_post(UART_EVENT_WRITE, len, buf, len, portMAX_DELAY);
-
-    return written;
-} */

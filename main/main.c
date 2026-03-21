@@ -31,6 +31,31 @@ static void sntp_time_set_handler(struct timeval *tv) {
     ESP_LOGI(TAG, "Synced time from SNTP");
 }
 
+void ntrip_print(void* handler_args, esp_event_base_t base, int32_t id, void* event_data) {
+    // event_data is the string sent by the producer
+    char* received_str = (char*)event_data;
+    int len = strlen(received_str);
+    
+    if (len < 3 ) {
+        ESP_LOGW(TAG, "Received string too short - %d bytes, string: %s", len, received_str);
+        return;
+    }
+
+    if (received_str[len - 1] != '\n') {
+        ESP_LOGW(TAG, "Received string does not end with newline, string: %s", received_str);
+        return;
+    }
+
+    if (received_str[len - 2] != '\r') {
+        ESP_LOGW(TAG, "Received string does not have carriage return, string: %s", received_str);
+        return;
+    }
+
+    received_str[len - 2] = '\0'; // Remove the trailing \r\n for cleaner logging and processing. The string is now null-terminated and does not include the \r\n at the end.
+       
+    printf("NTRIP msg : %s\\r\\n\n", received_str);
+}
+ 
 void app_main()
 {
     esp_log_level_set(TAG, ESP_LOG_INFO);
@@ -89,31 +114,36 @@ void app_main()
     ESP_LOGI(TAG, "Web server initialized successfully");
     vTaskDelay(pdMS_TO_TICKS(500));
    
+    ntrip_handler_register(ntrip_print);
 
     char writebuff [128];
     
     for (;;) {
 
         strcpy(writebuff, "version\r\n");
+        ESP_LOGI(TAG, "version");
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
         uart_write_bytes(1 , writebuff, strlen(writebuff));
-        vTaskDelay(pdMS_TO_TICKS(3000));
 
-        strcpy(writebuff, "config com1\r\n");
-        uart_write_bytes(1 , writebuff, strlen(writebuff));
-        vTaskDelay(pdMS_TO_TICKS(3000));
-        
-        strcpy(writebuff, "config com2\r\n");
-        uart_write_bytes(1 , writebuff, strlen(writebuff));
-        vTaskDelay(pdMS_TO_TICKS(3000));
-        
-        strcpy(writebuff, "config com3\r\n");
-        uart_write_bytes(1 , writebuff, strlen(writebuff));
-        vTaskDelay(pdMS_TO_TICKS(3000));
-        
-        
-        
-        //ESP_LOGI(TAG, "Writing to UART from main loop\r\n");
+        vTaskDelay(pdMS_TO_TICKS(5000));
 
+        strcpy(writebuff, "config\r\n");
+        ESP_LOGI(TAG, "config");
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        uart_write_bytes(1 , writebuff, strlen(writebuff));
+
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        
+        strcpy(writebuff, "mode\r\n");
+        ESP_LOGI(TAG, "mode");
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        uart_write_bytes(1 , writebuff, strlen(writebuff));
+
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        
     } // infinite for
  
     /* ntrip_caster_init();

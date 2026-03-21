@@ -8,6 +8,9 @@ ESP_EVENT_DECLARE_BASE(UART_EVENT_WRITE);
 
 esp_err_t uart_init();
 
+void ntrip_handler_register(esp_event_handler_t event_handler);
+void ntrip_handler_unregister(esp_event_handler_t event_handler);
+
 void uart_inject(void *data, size_t len);
 int uart_log(uint8_t uart_port, char *buffer, size_t len);
 //int uart_nmea(const char *fmt, ...);
