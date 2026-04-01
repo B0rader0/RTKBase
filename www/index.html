@@ -47,8 +47,8 @@
         }
     </style>
     <script>
-        const releases_api_url = 'https://api.github.com/repos/nebkat/esp32-xbee/releases';
-        const releases_html_url = 'https://github.com/nebkat/esp32-xbee/releases';
+        const releases_api_url = 'https://api.github.com/';
+        const releases_html_url = 'https://github.com/';
 
         $.fn.serializeObject = function() {
             var o = {};
@@ -476,7 +476,6 @@
     <div class="container">
         <div class="pt-5 text-center">
             <h2>RTK Config <a id="project-version" href="https://github.com/nebkat/esp32-xbee/releases" class="text-muted small"></a> <a id="prerelease-available" class="text-info small" style="display: none">(beta available)</a></h2>
-
             <p class="lead">Adjust the settings below and then click on "Submit". The device will restart with the new settings applied. If you have adjusted WiFi settings the device may be moved onto a new IP address, or require you to reconnect to its access point.</p>
         </div>
         <form class="needs-validation" id="form" novalidate>
@@ -489,9 +488,6 @@
                             <div class="custom-control custom-switch d-inline float-right">
                                 <input type="checkbox" name="w_sta_active" value="1" checked class="custom-control-input" id="switch-wifi-sta">
                                 <label class="custom-control-label" for="switch-wifi-sta"></label>
-                            </div>
-                            <div class="d-inline mr-1 float-right">
-                                <input type="color" name="w_sta_color" data-disable-if="#switch-wifi-sta" value="#ffffff" id="color-wifi-sta">
                             </div>
                         </div>
                         <div class="card-body" data-disable-if="#switch-wifi-sta">
@@ -688,41 +684,6 @@
                             </div>
                         </div>
                     </div>
-                    <!--
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            Bluetooth
-                            <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="bt_active" value="1" class="custom-control-input" id="switch-bluetooth">
-                                <label class="custom-control-label" for="switch-wifi-bluetooth"></label>
-                            </div>
-                        </div>
-                        <div class="card-body" data-disable-if="#switch-bluetooth">
-                            <div class="form-row mb-3">
-                                <div class="col-8">
-                                    <label>Device name</label>
-                                    <div class="input-group">
-                                        <input type="text" name="bt_dev_name" class="form-control" maxlength="32" required>
-                                        <div class="input-group-append btn-group-toggle" data-toggle="buttons">
-                                            <label class="btn btn-outline-secondary active">
-                                                <input type="checkbox" name="bt_dev_vis" value="1" checked> Discoverable
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Pin code</label>
-                                    <div class="input-group">
-                                        <input type="number" name="bt_pin_code" class="form-control text-center" maxlength="1" min="0" max="9" pattern="[0-9]" oninput="autoTab(this)" required/>
-                                        <input type="number" name="bt_pin_code" class="form-control text-center" maxlength="1" min="0" max="9" pattern="[0-9]" oninput="autoTab(this)" required/>
-                                        <input type="number" name="bt_pin_code" class="form-control text-center" maxlength="1" min="0" max="9" pattern="[0-9]" oninput="autoTab(this)" required/>
-                                        <input type="number" name="bt_pin_code" class="form-control text-center" maxlength="1" min="0" max="9" pattern="[0-9]" oninput="autoTab(this)" required/>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    -->
                 </div>
                 <div class="col-xl-6">
                     <div class="card mb-3">
@@ -732,9 +693,6 @@
                             <div class="custom-control custom-switch d-inline float-right active">
                                 <input type="checkbox" name="w_ap_active" value="1" checked class="custom-control-input" id="switch-wifi-ap">
                                 <label class="custom-control-label" for="switch-wifi-ap"></label>
-                            </div>
-                            <div class="d-inline mr-1 float-right">
-                                <input type="color" name="w_ap_color" data-disable-if="#switch-wifi-ap" value="#ffffff" id="color-wifi-ap">
                             </div>
                         </div>
                         <div class="card-body" data-disable-if="#switch-wifi-ap">
@@ -936,32 +894,29 @@
                 <div class="col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
-                            NTRIP client
+                            NTRIP client 1
                             <small class="ntrip-client-stats stream-stats" data-stream="ntrip_client"></small>
                             <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="ntr_cli_active" value="1" class="custom-control-input" id="switch-ntrip-client">
+                                <input type="checkbox" name="ntrip1_active" value="1" class="custom-control-input" id="switch-ntrip-client">
                                 <label class="custom-control-label" for="switch-ntrip-client"></label>
-                            </div>
-                            <div class="d-inline mr-1 float-right">
-                                <input type="color" name="ntr_cli_color" data-disable-if="#switch-ntrip-client" value="#ffffff" id="color-ntrip-client">
                             </div>
                         </div>
                         <div class="card-body" data-disable-if="#switch-ntrip-client">
                             <div class="form-row mb-3">
                                 <div class="col">
-                                    <label>Host and port</label>
+                                    <label>Remote host and port</label>
                                     <div class="input-group">
-                                        <input type="text" name="ntr_cli_host" class="form-control" style="flex-grow: 3" required>
+                                        <input type="text" name="ntrip1_host" class="form-control" style="flex-grow: 3" required>
                                         <div class="input-group-append input-group-prepend">
                                             <span class="input-group-text">:</span>
                                         </div>
-                                        <input type="number" name="ntr_cli_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                        <input type="number" name="ntrip1_port" maxlength="5" min="0" max="65535" class="form-control" required>
                                     </div>
                                 </div>
                                 <div class="col">
                                     <label>Mountpoint</label>
                                     <div class="input-group">
-                                        <input type="text" name="ntr_cli_mp" class="form-control" maxlength="32" required>
+                                        <input type="text" name="ntrip1_mp" class="form-control" maxlength="32" required>
                                         <!--<div class="input-group-append">
                                             <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-toggle="dropdown"></button>
                                             <div class="dropdown-menu">
@@ -982,13 +937,13 @@
                                 <div class="col">
                                     <label>Username</label>
                                     <div class="input-group">
-                                        <input type="text" name="ntr_cli_user" class="form-control">
+                                        <input type="text" name="ntrip1_user" class="form-control">
                                     </div>
                                 </div>
                                 <div class="col">
                                     <label>Password</label>
                                     <div class="input-group">
-                                        <input type="password" name="ntr_cli_pass" class="form-control">
+                                        <input type="password" name="ntrip1_pass" class="form-control">
                                     </div>
                                 </div>
                             </div>
@@ -996,32 +951,29 @@
                     </div>
                     <div class="card mb-3">
                         <div class="card-header">
-                            NTRIP server
+                            NTRIP client 2
                             <small class="ntrip-server-stats stream-stats" data-stream="ntrip_server"></small>
                             <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="ntr_srv_active" value="1" class="custom-control-input" id="switch-ntrip-server">
+                                <input type="checkbox" name="ntrip2_active" value="1" class="custom-control-input" id="switch-ntrip-server">
                                 <label class="custom-control-label" for="switch-ntrip-server"></label>
-                            </div>
-                            <div class="d-inline mr-1 float-right">
-                                <input type="color" name="ntr_srv_color" data-disable-if="#switch-ntrip-server" value="#ffffff" id="color-ntrip-server">
                             </div>
                         </div>
                         <div class="card-body" data-disable-if="#switch-ntrip-server">
                             <div class="form-row mb-3">
                                 <div class="col">
-                                    <label>Host and port</label>
+                                    <label>Remote host and port</label>
                                     <div class="input-group">
-                                        <input type="text" name="ntr_srv_host" class="form-control" style="flex-grow: 3" required>
+                                        <input type="text" name="ntrip2_host" class="form-control" style="flex-grow: 3" required>
                                         <div class="input-group-append input-group-prepend">
                                             <span class="input-group-text">:</span>
                                         </div>
-                                        <input type="number" name="ntr_srv_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                        <input type="number" name="ntrip2_port" maxlength="5" min="0" max="65535" class="form-control" required>
                                     </div>
                                 </div>
                                 <div class="col">
                                     <label>Mountpoint</label>
                                     <div class="input-group">
-                                        <input type="text" name="ntr_srv_mp" class="form-control" maxlength="32" required>
+                                        <input type="text" name="ntrip2_mp" class="form-control" maxlength="32" required>
                                     </div>
                                 </div>
                             </div>
@@ -1029,13 +981,13 @@
                                 <div class="col">
                                     <label>Username</label>
                                     <div class="input-group">
-                                        <input type="text" name="ntr_srv_user" class="form-control">
+                                        <input type="text" name="ntrip2_user" class="form-control">
                                     </div>
                                 </div>
                                 <div class="col">
                                     <label>Password</label>
                                     <div class="input-group">
-                                        <input type="password" name="ntr_srv_pass" class="form-control">
+                                        <input type="password" name="ntrip2_pass" class="form-control">
                                     </div>
                                 </div>
                             </div>
@@ -1046,11 +998,8 @@
                             NTRIP caster
                             <small class="ntrip-caster-stats stream-stats" data-stream="ntrip_caster"></small>
                             <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="ntr_cst_active" value="1" class="custom-control-input" id="switch-ntrip-caster">
+                                <input type="checkbox" name="ntrip_caster_active" value="1" class="custom-control-input" id="switch-ntrip-caster">
                                 <label class="custom-control-label" for="switch-ntrip-caster"></label>
-                            </div>
-                            <div class="d-inline mr-1 float-right">
-                                <input type="color" name="ntr_cst_color" data-disable-if="#switch-ntrip-caster" value="#ffffff" id="color-ntrip-caster">
                             </div>
                         </div>
                         <div class="card-body" data-disable-if="#switch-ntrip-caster">
@@ -1058,25 +1007,25 @@
                                 <div class="col">
                                     <label>Port</label>
                                     <div class="input-group">
-                                        <input type="number" name="ntr_cst_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                        <input type="number" name="ntrip_caster_port" maxlength="5" min="0" max="65535" class="form-control" required>
                                     </div>
                                 </div>
                                 <div class="col">
                                     <label>Mountpoint</label>
                                     <div class="input-group">
-                                        <input type="text" name="ntr_cst_mp" class="form-control" maxlength="32" required>
+                                        <input type="text" name="ntrip_caster_mp" class="form-control" maxlength="32" required>
                                     </div>
                                 </div>
                                 <div class="col">
                                     <label>Username</label>
                                     <div class="input-group">
-                                        <input type="text" name="ntr_cst_user" class="form-control">
+                                        <input type="text" name="ntrip_caster_user" class="form-control">
                                     </div>
                                 </div>
                                 <div class="col">
                                     <label>Password</label>
                                     <div class="input-group">
-                                        <input type="password" name="ntr_cst_pass" class="form-control">
+                                        <input type="password" name="ntrip_caster_pass" class="form-control">
                                     </div>
                                 </div>
                             </div>
@@ -1089,11 +1038,8 @@
                             Socket server
                             <small class="socket-server-stats stream-stats" data-stream="socket_server"></small>
                             <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="sck_srv_active" value="1" class="custom-control-input" id="switch-socket-server">
+                                <input type="checkbox" name="socket_srv_active" value="1" class="custom-control-input" id="switch-socket-server">
                                 <label class="custom-control-label" for="switch-socket-server"></label>
-                            </div>
-                            <div class="d-inline mr-1 float-right">
-                                <input type="color" name="sck_srv_color" data-disable-if="#switch-socket-server" value="#ffffff" id="color-socket-server">
                             </div>
                         </div>
                         <div class="card-body" data-disable-if="#switch-socket-server">
@@ -1101,13 +1047,7 @@
                                 <div class="col">
                                     <label>TCP port</label>
                                     <div class="input-group">
-                                        <input type="number" name="sck_srv_t_port" maxlength="5" min="0" max="65535" class="form-control" required>
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>UDP port</label>
-                                    <div class="input-group">
-                                        <input type="number" name="sck_srv_u_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                        <input type="number" name="socket_srv_port" maxlength="5" min="0" max="65535" class="form-control" required>
                                     </div>
                                 </div>
                             </div>
@@ -1115,42 +1055,15 @@
                     </div>
                     <div class="card mb-3">
                         <div class="card-header">
-                            Socket client
-                            <small class="socket-client-stats stream-stats" data-stream="socket_client"></small>
-                            <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="sck_cli_active" value="1" class="custom-control-input" id="switch-socket-client">
-                                <label class="custom-control-label" for="switch-socket-client"></label>
-                            </div>
-                            <div class="d-inline mr-1 float-right">
-                                <input type="color" name="sck_cli_color" data-disable-if="#switch-socket-client" value="#ffffff" id="color-socket-client">
-                            </div>
                         </div>
                         <div class="card-body" data-disable-if="#switch-socket-client">
                             <div class="form-row mb-3">
                                 <div class="col-8">
                                     <label>Host and port</label>
-                                    <div class="input-group">
-                                        <div class="btn-group btn-group-toggle d-flex input-group-prepend" data-toggle="buttons">
-                                            <label class="btn btn-outline-secondary active">
-                                                <input type="radio" name="sck_cli_type" value="1" checked> TCP
-                                            </label>
-                                            <label class="btn btn-outline-secondary">
-                                                <input type="radio" name="sck_cli_type" value="0"> UDP
-                                            </label>
-                                        </div>
-                                        <input type="text" name="sck_cli_host" class="form-control" style="flex-grow: 3" required>
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text">:</span>
-                                        </div>
-                                        <input type="number" name="sck_cli_port" maxlength="5" min="0" max="65535" class="form-control" required>
-                                    </div>
                                 </div>
                                 <div class="col-4">
                                     <label>Connect message</label>
-                                    <div class="input-group">
-                                        <input type="text" name="sck_cli_msg_unformatted" class="form-control" value="">
-                                        <input type="hidden" name="sck_cli_msg" data-formatted="true">
-                                    </div>
+                                    
                                 </div>
                             </div>
                         </div>
@@ -1162,7 +1075,7 @@
     <footer id="footer" class="bg-dark">
         <div class="container">
             <div class="text-center text-light">
-                <small>&copy; <a href="http://cvetkovic.ie" class="text-white">Neboj&#353;a Cvetkovi&#263;</a> 2020 - <a href="https://github.com/nebkat" class="text-white">GitHub</a> - <a href="https://github.com/nebkat/esp32-xbee" class="text-white">Project</a> - Uptime <span class="uptime">loading...</span> - Heap <span class="heap">loading...</span></small>
+                <small>&copy; <a href="http://bar.de" class="text-white">Boyan&#353;a Radev&#263;</a> 2020 - <a href="https://github.com/" class="text-white">GitHub</a> - <a href="https://github.com/ class="text-white">Project</a> - Uptime <span class="uptime">loading...</span> - Heap <span class="heap">loading...</span></small>
             </div>
         </div>
     </footer>
