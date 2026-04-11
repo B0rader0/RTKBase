@@ -21,7 +21,7 @@
 
 #include <sys/queue.h>
 #include <freertos/task.h>
-#include <tasks.h>
+#include "nvs_config.h"
 
 #define RUNNING_AVERAGE_PERIOD 1000
 #define RUNNING_AVERAGE_ALPHA 0.8

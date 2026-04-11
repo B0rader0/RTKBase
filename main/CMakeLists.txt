@@ -1,23 +1,19 @@
 idf_component_register(
 	SRCS
 		"main.c"
-		"config.c"
+		"nvs_config.c"
 		"core_dump.c"
-		"log.c"
-		"interface/ntrip_util.c"
 		"retry.c"
 		"stream_stats.c"
-		"gps_uart.c"
+		"gnss_uart.c"
 		"reset_button.c"
 		"util.c"
 		"web_server.c"
 		"wifi.c"
-		"interface/ntrip_caster.c"
-		"interface/ntrip_client.c"
-		"interface/ntrip_server.c"
-		"interface/socket_client.c"
-		"interface/socket_server.c"
-		"protocol/nmea.c"
+		"frame_pool.c"
+		"tcp_server.c"
+		"ntrip_client.c"
+		"ntrip_caster.c"
 	INCLUDE_DIRS 
 		"include"
 	REQUIRES
@@ -40,6 +36,7 @@ idf_component_register(
 		esp_ringbuf
 		esp_driver_ledc
 		esp_driver_uart
+		esp_hw_support
 )
 
 spiffs_create_partition_image(www ../www FLASH_IN_PROJECT)

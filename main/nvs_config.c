@@ -1,5 +1,5 @@
 /*
- * Based on the ESP32-XBee distribution (https://github.com/nebkat/esp32-xbee).
+ * Inspired by the ESP32-XBee distribution (https://github.com/nebkat/esp32-xbee).
  * Manages the confiuration of the RTK Base device.
  *
  */
@@ -12,12 +12,12 @@
 #include <driver/uart.h>
 #include <esp_wifi_types.h>
 #include <driver/gpio.h>
-#include <gps_uart.h>
-#include <tasks.h>
 #include <cJSON.h>
 #include <esp_wifi.h>
-#include "config.h"
+#include <esp_mac.h>
 
+#include "nvs_config.h"
+#include "gnss_uart.h"
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 
@@ -47,135 +47,109 @@ const config_item_t CONFIG_ITEMS[] = {
         .type = TYPE_CFG_ITEM_SECRET_STR,
         .def.str = ""
     },
-    {  // NTRIP
-        .key = KEY_CONFIG_NTRIP_SERVER_ACTIVE,
+     {
+        .key = KEY_CONFIG_STATION_HOSTNAME,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = "RTK_"
+    },
+    {  // NTRIP Server 1
+        .key = KEY_CONFIG_NTRIP1_ACTIVE,
         .type = TYPE_CFG_ITEM_BOOL,
         .def.enabled = false
     },
     {
-        .key = KEY_CONFIG_NTRIP_SERVER_HOST,
+        .key = KEY_CONFIG_NTRIP1_HOST,
         .type = TYPE_CFG_ITEM_STR,
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_NTRIP_SERVER_PORT,
+        .key = KEY_CONFIG_NTRIP1_PORT,
         .type = TYPE_CFG_ITEM_UINT16,
         .def.uint16 = 2101
     },
     {
-        .key = KEY_CONFIG_NTRIP_SERVER_MOUNTPOINT,
+        .key = KEY_CONFIG_NTRIP1_MOUNTPOINT,
         .type = TYPE_CFG_ITEM_STR,
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_NTRIP_SERVER_USERNAME,
+        .key = KEY_CONFIG_NTRIP1_USERNAME,
         .type = TYPE_CFG_ITEM_STR,
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_NTRIP_SERVER_PASSWORD,
+        .key = KEY_CONFIG_NTRIP1_PASSWORD,
         .type = TYPE_CFG_ITEM_SECRET_STR,
         .def.str = ""
     },
-    {
-        .key = KEY_CONFIG_NTRIP_CLIENT_ACTIVE,
+    {   // NTRIP Server 2
+        .key = KEY_CONFIG_NTRIP2_ACTIVE,
         .type = TYPE_CFG_ITEM_BOOL,
         .def.enabled = false
     },
     {
-        .key = KEY_CONFIG_NTRIP_CLIENT_HOST,
+        .key = KEY_CONFIG_NTRIP2_HOST,
         .type = TYPE_CFG_ITEM_STR,
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_NTRIP_CLIENT_PORT,
+        .key = KEY_CONFIG_NTRIP2_PORT,
         .type = TYPE_CFG_ITEM_UINT16,
         .def.uint16 = 2101
     },
     {
-        .key = KEY_CONFIG_NTRIP_CLIENT_MOUNTPOINT,
+        .key = KEY_CONFIG_NTRIP2_MOUNTPOINT,
         .type = TYPE_CFG_ITEM_STR,
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_NTRIP_CLIENT_USERNAME,
+        .key = KEY_CONFIG_NTRIP2_USERNAME,
         .type = TYPE_CFG_ITEM_STR,
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_NTRIP_CLIENT_PASSWORD,
+        .key = KEY_CONFIG_NTRIP2_PASSWORD,
         .type = TYPE_CFG_ITEM_SECRET_STR,
         .def.str = ""
     },
-    {
-        .key = KEY_CONFIG_NTRIP_CASTER_ACTIVE,
+    {   //NTRIP Caster
+        .key = KEY_CONFIG_CASTER_ACTIVE,
         .type = TYPE_CFG_ITEM_BOOL,
         .def.enabled = false
     },
     {
-        .key = KEY_CONFIG_NTRIP_CASTER_PORT,
+        .key = KEY_CONFIG_CASTER_PORT,
         .type = TYPE_CFG_ITEM_UINT16,
         .def.uint16 = 2101
     },
     {
-        .key = KEY_CONFIG_NTRIP_CASTER_MOUNTPOINT,
+        .key = KEY_CONFIG_CASTER_MOUNTPOINT,
         .type = TYPE_CFG_ITEM_STR,
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_NTRIP_CASTER_USERNAME,
+        .key = KEY_CONFIG_CASTER_USERNAME,
         .type = TYPE_CFG_ITEM_STR,
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_NTRIP_CASTER_PASSWORD,
+        .key = KEY_CONFIG_CASTER_PASSWORD,
         .type = TYPE_CFG_ITEM_SECRET_STR,
         .def.str = ""
     },
 
     // Configuraton for the local Socket server
-    // to which clients can connect to receive the RTCM data
+    // to which UPrecise can cnnect
     // TODO: exchange configuration commands for the GPS module.
     {
-        .key = KEY_CONFIG_SOCKET_SERVER_ACTIVE,
+        .key = KEY_CONFIG_TCP_SERVER_ACTIVE,
         .type = TYPE_CFG_ITEM_BOOL,
         .def.enabled = false
     },
     {
-        .key = KEY_CONFIG_SOCKET_SERVER_TCP_PORT,
+        .key = KEY_CONFIG_TCP_SERVER_PORT,
         .type = TYPE_CFG_ITEM_UINT16,
-        .def.uint16 = 23
-    },
-    {
-        .key = KEY_CONFIG_SOCKET_SERVER_UDP_PORT,
-        .type = TYPE_CFG_ITEM_UINT16,
-        .def.uint16 = 23
-    },
-
-    {// no idea what is the purpose of the socket client?!
-        .key = KEY_CONFIG_SOCKET_CLIENT_ACTIVE,
-        .type = TYPE_CFG_ITEM_BOOL,
-        .def.enabled = false
-    },
-    {
-        .key = KEY_CONFIG_SOCKET_CLIENT_HOST,
-        .type = TYPE_CFG_ITEM_STR,
-        .def.str = ""
-    },
-    {
-        .key = KEY_CONFIG_SOCKET_CLIENT_PORT,
-        .type = TYPE_CFG_ITEM_UINT16,
-        .def.uint16 = 23
-    },
-    {
-        .key = KEY_CONFIG_SOCKET_CLIENT_TYPE_TCP_UDP,
-        .type = TYPE_CFG_ITEM_BOOL,
-        .def.enabled = true
-    },
-    {
-        .key = KEY_CONFIG_SOCKET_CLIENT_CONNECT_MESSAGE,
-        .type = TYPE_CFG_ITEM_STR,
-        .def.str = "\n"
+        .def.uint16 = 5015
     },
 
     // UART
@@ -341,7 +315,7 @@ const config_item_t CONFIG_ITEMS[] = {
 // All subsequent initialization functions (e.g. wifi_init) will read the values from the config partition
 // and apply them to the corresponding components (e.g. WiFi)
 // esp_err_t config_init() {
-esp_err_t cfg_init()
+esp_err_t nvs_cfg_init()
 {
     nvs_handle_t h_config;       // Local handle to the NVS partition, used for reading and writing configuration values. It is opened and closed for each operation, which is safer and more robust than using a global handle.
     config_item_value_t cfg_var; // Local variable used for reading configuration values.
@@ -364,7 +338,8 @@ esp_err_t cfg_init()
     res = nvs_open(CONFIG_PREFERENCES, NVS_READWRITE, &h_config);
     ESP_ERROR_CHECK(res);
 
-    esp_wifi_get_mac(WIFI_IF_AP, mac_buff);
+    esp_read_mac(mac_buff, ESP_MAC_EFUSE_FACTORY); // Get the MAC address of the WiFi STA interface
+    //esp_wifi_get_mac(WIFI_IF_AP, mac_buff);
     sprintf(str_buf, "RTKBase_%02X%02X", mac_buff[4], mac_buff[5]);
     
     // Iterate over all config items and check if they exist in NVS. If not, write the default value to NVS.
@@ -394,7 +369,8 @@ esp_err_t cfg_init()
                 res = nvs_get_str(h_config, CONFIG_ITEMS[i].key, NULL, &str_len_var); // Get the required buffer size for the string value
                 if (res != ESP_OK) {
                     // If the string doesn't exist in NVS or is corrupted, set it to the default value.
-                    if (strcmp(CONFIG_ITEMS[i].key, KEY_CONFIG_WIFI_AP_SSID) == 0) {
+                    if ((strcmp(CONFIG_ITEMS[i].key, KEY_CONFIG_WIFI_AP_SSID) == 0) || 
+                        (strcmp(CONFIG_ITEMS[i].key, KEY_CONFIG_STATION_HOSTNAME) == 0)) {
                         nvs_set_str(h_config, CONFIG_ITEMS[i].key, str_buf); // Use the generated SSID as the default value for the WiFi AP SSID
                     } else {
                         nvs_set_str(h_config, CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].def.str);
@@ -402,7 +378,7 @@ esp_err_t cfg_init()
                 }
                 continue;
             default:
-                ESP_LOGE(TAG, "Unknown config item type for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
+                ESP_LOGE(TAG, "Unknown config_item TYPE for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
             continue;
         } // switch
     } // for
@@ -490,7 +466,7 @@ esp_err_t cfg_to_json(cJSON *root)
                 cJSON_AddNumberToObject(root, CONFIG_ITEMS[i].key, cfg_value.uint32);
                 continue;
             default:
-                ESP_LOGE(TAG, "Unknown config item type for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
+                ESP_LOGE(TAG, "Unknown config item TYPE for key %s: %d", CONFIG_ITEMS[i].key, CONFIG_ITEMS[i].type);
                 continue;
         } // switch
     } // for
@@ -576,7 +552,7 @@ esp_err_t cfg_get_str(const char* key, char** out_value)
     size_t str_len = 0;
     
     res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
-    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
+    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in nvs_cfg_init()
 
     res = nvs_get_str(h_cfg, key, NULL, &str_len);
     if (res != ESP_OK) { 
@@ -613,12 +589,27 @@ esp_err_t cfg_get_u8(const char* key, uint8_t* out_value)
     
 } //cfg_get_u8
 
+esp_err_t cfg_get_u16(const char* key, uint16_t* out_value)
+{
+    esp_err_t res;
+    nvs_handle_t h_cfg;       // Local handle to the NVS partition, used for reading.
+    
+    res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
+    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
+
+    res = nvs_get_u16(h_cfg, key, out_value);
+
+    nvs_close(h_cfg);
+    return res;
+    
+} //cfg_get_u16
+
 esp_err_t cfg_get_u32(const char* key, uint32_t* out_value)
 {
     nvs_handle_t h_cfg;       // Local handle to the NVS partition, used for reading.
     
     esp_err_t res = nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_cfg);
-    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in cfg_init()
+    ESP_ERROR_CHECK(res);  // this should not fail as the partition should have been initialized in nvs_cfg_init()
 
     res = nvs_get_u32(h_cfg, key, out_value);
 

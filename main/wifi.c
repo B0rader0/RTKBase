@@ -11,7 +11,7 @@
 #include <math.h>
 #include <driver/gpio.h>
 #include <sys/param.h>
-#include <tasks.h>
+//#include <tasks.h>
 #include <retry.h>
 #include <freertos/event_groups.h>
 #include <esp_netif_ip_addr.h>
@@ -19,8 +19,8 @@
 #include <string.h>
 #include <esp_mac.h>
 #include "wifi.h"
-#include "config.h"
-#include "gps_uart.h"
+#include "nvs_config.h"
+#include "gnss_uart.h"
 
 static const char *TAG = "WIFI";
 
@@ -214,17 +214,20 @@ void wait_for_network() {
     xEventGroupWaitBits(wifi_event_group, WIFI_STA_GOT_IPV4_BIT | WIFI_AP_STA_CONNECTED_BIT, false, false, portMAX_DELAY);
 }
 
+// Initialise WiFi according to the configurations (mode, credentials, IP, hostname).
+// Blocks until network is up (STA connected / AP ready).
 void net_init() {
-    bool bool_var;
+    uint8_t bool_var; // Used for reading boolean config values from NVS, which are stored as uint8_t (0 or 1)
 
-    esp_netif_init();
+    ESP_ERROR_CHECK(esp_netif_init());
 
-    // SoftAP
-    cfg_get_u8(KEY_CONFIG_WIFI_AP_ACTIVE, (uint8_t*) &bool_var);
+    // Soft AP (access point)
+    cfg_get_u8(KEY_CONFIG_WIFI_AP_ACTIVE, &bool_var);
     if (bool_var) {
+        ESP_LOGI(TAG, "Starting WiFi in AP mode, bool var is %d", bool_var);
         esp_netif_ap = esp_netif_create_default_wifi_ap();
 
-        // IP configuration
+        // IP configuration 
         esp_netif_ip_info_t ip_info_ap;
         cfg_get_u32(KEY_CONFIG_WIFI_AP_GATEWAY, (uint32_t*) &ip_info_ap.ip);
         ip_info_ap.gw = ip_info_ap.ip;
@@ -235,7 +238,7 @@ void net_init() {
         ip_info_ap.netmask.addr = esp_netif_htonl(0xffffffffu << (32u - subnet));
 
         // IP forwarding/NATP
-        cfg_get_u8(KEY_CONFIG_WIFI_STA_AP_FORWARD, (uint8_t*) &bool_var);
+        cfg_get_u8(KEY_CONFIG_WIFI_STA_AP_FORWARD, &bool_var);
         if (bool_var) {
             uint8_t dhcps_offer = true;
             ESP_ERROR_CHECK(esp_netif_dhcps_option(esp_netif_ap, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &dhcps_offer, 1));
@@ -246,11 +249,17 @@ void net_init() {
         ESP_ERROR_CHECK(esp_netif_dhcps_start(esp_netif_ap));
     }
 
-    // STA
-    cfg_get_u8(KEY_CONFIG_WIFI_STA_ACTIVE, (uint8_t*) &bool_var);
+    // STA (station)
+    cfg_get_u8(KEY_CONFIG_WIFI_STA_ACTIVE, &bool_var);
     if (bool_var) {
         esp_netif_ip_info_t ip_info_sta;
+        
         esp_netif_sta = esp_netif_create_default_wifi_sta();
+
+        char *hostname;
+        cfg_get_str(KEY_CONFIG_STATION_HOSTNAME, &hostname);
+        ESP_ERROR_CHECK(esp_netif_set_hostname(esp_netif_sta, hostname));
+        free(hostname);
 
         // Static IP configuration
         cfg_get_u8(KEY_CONFIG_WIFI_STA_STATIC, (uint8_t*) &bool_var);

@@ -25,8 +25,7 @@
 #include <esp_vfs.h>
 #include <esp_spiffs.h>
 #include <mdns.h>
-#include <config.h>
-#include <log.h>
+//#include <log.h>
 #include <core_dump.h>
 #include <util.h>
 #include <lwip/inet.h>
@@ -42,7 +41,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_mac.h"                    // MACSTR/MAC2STR (GN)
-#include "config.h"
+#include "nvs_config.h"
 #include <inttypes.h>   // at top of file (GN)
 
 // Max length a file path can have on storage
@@ -254,12 +253,18 @@ static esp_err_t check_auth(httpd_req_t *req) {
     return ESP_OK;
 }
 
+
+// ─── Get log data as plain text ─────────────────────────────────────────────
+// This is used by the web interface to show recent log messages, and can also be used to download the log as a file.
+// TODO
 static esp_err_t log_get_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
     httpd_resp_set_type(req, "text/plain");
 
-    size_t length;
+    httpd_resp_sendstr(req, ""); // hack to make it compile
+
+    /* size_t length;
     void *log_data = log_receive(&length, 1);
     if (log_data == NULL) {
         httpd_resp_sendstr(req, "");
@@ -269,7 +274,7 @@ static esp_err_t log_get_handler(httpd_req_t *req) {
 
     httpd_resp_send(req, log_data, length);
 
-    log_return(log_data);
+    log_return(log_data); */
 
     return ESP_OK;
 }
@@ -681,6 +686,6 @@ static httpd_handle_t web_server_start(void)
 } //web_server_start
 
 void web_server_init() {
-    www_spiffs_init();
+    ESP_ERROR_CHECK(www_spiffs_init());
     web_server_start();
 } //web_server_init

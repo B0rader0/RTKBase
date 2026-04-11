@@ -10,7 +10,7 @@
 #include <iot_button.h>
 #include <esp_idf_version.h>
 #include <button_gpio.h>
-#include "config.h"
+#include "nvs_config.h"
 
 /* 
 *  Most development boards have "boot" button attached to GPIO0.
@@ -30,7 +30,8 @@ static void button_event_reset_and_reboot(void *arg, void *data)
     cfg_reset_restart();
 }
 
-//void button_init(uint32_t button_num)
+// When the button is held down for more than BTN_LONG_PRESS and then released, the NVM storage is 
+// cleared and the device restarts. Built-in LED cannot be used because it is not controllable.
 void reset_button_init()
 {
     

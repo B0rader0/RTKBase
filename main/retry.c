@@ -17,7 +17,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include "gps_uart.h"
+#include "gnss_uart.h"
 #include "retry.h"
 
 struct retry_delay {

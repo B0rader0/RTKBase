@@ -887,7 +887,7 @@
             </div>
             <div class="row mb-3">
                 <div class="col">
-                    <input type="submit" class="form-control">
+                    <input type="submit" class="form-control" value="Save and restart">
                 </div>
             </div>
             <div class="row">
@@ -917,19 +917,6 @@
                                     <label>Mountpoint</label>
                                     <div class="input-group">
                                         <input type="text" name="ntrip1_mp" class="form-control" maxlength="32" required>
-                                        <!--<div class="input-group-append">
-                                            <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-toggle="dropdown"></button>
-                                            <div class="dropdown-menu">
-                                                <a class="dropdown-item" href="#">Action</a>
-                                                <a class="dropdown-item" href="#">Another action</a>
-                                                <a class="dropdown-item" href="#">Something else here</a>
-                                                <div role="separator" class="dropdown-divider"></div>
-                                                <a class="dropdown-item" href="#">Separated link</a>
-                                            </div>
-                                        </div>
-                                        <div class="input-group-append">
-                                            <button type="button" class="btn btn-outline-secondary">Search</button>
-                                        </div>-->
                                     </div>
                                 </div>
                             </div>
@@ -993,52 +980,14 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            NTRIP caster
-                            <small class="ntrip-caster-stats stream-stats" data-stream="ntrip_caster"></small>
-                            <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="ntrip_caster_active" value="1" class="custom-control-input" id="switch-ntrip-caster">
-                                <label class="custom-control-label" for="switch-ntrip-caster"></label>
-                            </div>
-                        </div>
-                        <div class="card-body" data-disable-if="#switch-ntrip-caster">
-                            <div class="form-row mb-3">
-                                <div class="col">
-                                    <label>Port</label>
-                                    <div class="input-group">
-                                        <input type="number" name="ntrip_caster_port" maxlength="5" min="0" max="65535" class="form-control" required>
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Mountpoint</label>
-                                    <div class="input-group">
-                                        <input type="text" name="ntrip_caster_mp" class="form-control" maxlength="32" required>
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Username</label>
-                                    <div class="input-group">
-                                        <input type="text" name="ntrip_caster_user" class="form-control">
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Password</label>
-                                    <div class="input-group">
-                                        <input type="password" name="ntrip_caster_pass" class="form-control">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
                 <div class="col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
-                            Socket server
+                            TCP server
                             <small class="socket-server-stats stream-stats" data-stream="socket_server"></small>
                             <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="socket_srv_active" value="1" class="custom-control-input" id="switch-socket-server">
+                                <input type="checkbox" name="tcp_srv_active" value="1" class="custom-control-input" id="switch-socket-server">
                                 <label class="custom-control-label" for="switch-socket-server"></label>
                             </div>
                         </div>
@@ -1047,7 +996,7 @@
                                 <div class="col">
                                     <label>TCP port</label>
                                     <div class="input-group">
-                                        <input type="number" name="socket_srv_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                        <input type="number" name="tcp_srv_port" maxlength="5" min="0" max="65535" class="form-control" required>
                                     </div>
                                 </div>
                             </div>
@@ -1055,15 +1004,53 @@
                     </div>
                     <div class="card mb-3">
                         <div class="card-header">
+                            NTRIP caster
+                            <small class="ntrip-caster-stats stream-stats" data-stream="ntrip_caster"></small>
+                            <div class="custom-control custom-switch d-inline float-right">
+                                <input type="checkbox" name="caster_active" value="1" class="custom-control-input" id="switch-ntrip-caster">
+                                <label class="custom-control-label" for="switch-ntrip-caster"></label>
+                            </div>
                         </div>
-                        <div class="card-body" data-disable-if="#switch-socket-client">
+                        <div class="card-body" data-disable-if="#switch-ntrip-caster">
                             <div class="form-row mb-3">
-                                <div class="col-8">
-                                    <label>Host and port</label>
+                                <div class="col">
+                                    <label>Port</label>
+                                    <div class="input-group">
+                                        <input type="number" name="caster_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                    </div>
                                 </div>
-                                <div class="col-4">
-                                    <label>Connect message</label>
-                                    
+                                <div class="col">
+                                    <label>Mountpoint</label>
+                                    <div class="input-group">
+                                        <input type="text" name="caster_mp" class="form-control" maxlength="32" required>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <label>Username</label>
+                                    <div class="input-group">
+                                        <input type="text" name="caster_user" class="form-control">
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <label>Password</label>
+                                    <div class="input-group">
+                                        <input type="password" name="caster_pass" class="form-control">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            Base station host name
+                         </div>
+                        <div class="card-body">
+                            <div class="form-row mb-3">
+                                <div class="col">
+                                    <label>Host name</label>
+                                    <div class="input-group">
+                                        <input type="text" name="host_name" class="form-control" maxlength="32" required>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1075,7 +1062,7 @@
     <footer id="footer" class="bg-dark">
         <div class="container">
             <div class="text-center text-light">
-                <small>&copy; <a href="http://bar.de" class="text-white">Boyan&#353;a Radev&#263;</a> 2020 - <a href="https://github.com/" class="text-white">GitHub</a> - <a href="https://github.com/ class="text-white">Project</a> - Uptime <span class="uptime">loading...</span> - Heap <span class="heap">loading...</span></small>
+                <small>&copy; <a href="http://bar.de" class="text-white">Boyan Radev</a> 2020 - <a href="https://github.com/" class="text-white">GitHub</a> - <a href="https://github.com/ class="text-white">Project</a> - Uptime <span class="uptime">loading...</span> - Heap <span class="heap">loading...</span></small>
             </div>
         </div>
     </footer>
