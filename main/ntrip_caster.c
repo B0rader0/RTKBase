@@ -12,7 +12,7 @@
 #include <fcntl.h>
 #include "nvs_config.h"
 
-static const char *TAG = "NTRIP_SERVER";
+static const char *TAG = "NTRIP_CASTER";
 
 // ─── Per-rover connection state ───────────────────────────────────────────────
 

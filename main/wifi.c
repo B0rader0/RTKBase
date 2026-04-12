@@ -421,6 +421,12 @@ void wifi_sta_status(wifi_sta_status_t *status) {
         return;
     }
 
+    // Refresh the current AP record on demand so the web UI sees live RSSI.
+    if (esp_wifi_sta_get_ap_info(&sta_ap_info) != ESP_OK) {
+        memset(&sta_ap_info, 0, sizeof(sta_ap_info));
+        memcpy(sta_ap_info.ssid, config_sta.sta.ssid, sizeof(config_sta.sta.ssid));
+    }
+
     memcpy(status->ssid, sta_ap_info.ssid, sizeof(sta_ap_info.ssid));
     status->rssi = sta_ap_info.rssi;
     status->authmode = sta_ap_info.authmode;

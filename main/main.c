@@ -70,7 +70,6 @@ void app_main()
     // When the values are later needed, they are read from NVS (where they shoud exist)!
     // Call first, even before the defauld event loop?
     nvs_cfg_init();
-    ESP_LOGI(TAG, "nvs_cfg_init OK");
 
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_LOGI(TAG, "esp_event_loop_create_default OK");
@@ -79,7 +78,7 @@ void app_main()
     reset_button_init();
     ESP_LOGI(TAG, "reset_button_init OK");
     
-    //stream_stats_init(); // yet another task - Find out what this code does.
+    stream_stats_init(); // yet another task - Find out what this code does.
     
     net_init();
     ESP_LOGI(TAG, "net_init OK");
@@ -99,7 +98,6 @@ void app_main()
     // ── Queues (only for enabled services) ───────────────────────────────────
     uint8_t enbld;
 
-    
     
     cfg_get_u8(KEY_CONFIG_NTRIP1_ACTIVE, &enbld);
     if (enbld)
@@ -174,47 +172,7 @@ void app_main()
 
  */
     // ── Startup log ───────────────────────────────────────────────────────────
-    /* 
-    ESP_LOGI(TAG, "RTK Base Station — hostname: %s", g_cfg.hostname);
-    ESP_LOGI(TAG, "  WiFi: %s",
-             g_cfg.wifi_mode == WIFI_MODE_CFG_AP    ? "AP" :
-             g_cfg.wifi_mode == WIFI_MODE_CFG_STA   ? "STA" : "AP+STA");
-    ESP_LOGI(TAG, "  UART%d TX=%d RX=%d @ %d baud",
-             g_cfg.uart_port, g_cfg.uart_tx_pin, g_cfg.uart_rx_pin, g_cfg.uart_baud);
-    ESP_LOGI(TAG, "  Web UI: http://%s  |  http://%s.local",
-             g_cfg.ap_ip, g_cfg.hostname);
-
- */
-    /* // Below is for test purposes
-    char writebuff [128];
     
-    for (;;) {
-
-        strcpy(writebuff, "version\r\n");
-        ESP_LOGI(TAG, "version");
-        vTaskDelay(pdMS_TO_TICKS(500));
-        
-        uart_write_bytes(1 , writebuff, strlen(writebuff));
-
-        vTaskDelay(pdMS_TO_TICKS(5000));
-
-        strcpy(writebuff, "config\r\n");
-        ESP_LOGI(TAG, "config");
-        vTaskDelay(pdMS_TO_TICKS(500));
-        
-        uart_write_bytes(1 , writebuff, strlen(writebuff));
-
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        
-        strcpy(writebuff, "mode\r\n");
-        ESP_LOGI(TAG, "mode");
-        vTaskDelay(pdMS_TO_TICKS(500));
-        
-        uart_write_bytes(1 , writebuff, strlen(writebuff));
-
-        vTaskDelay(pdMS_TO_TICKS(5000)); 
-        
-    } // infinite for */
  
 }  // app_main
 

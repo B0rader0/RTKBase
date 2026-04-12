@@ -1,6 +1,12 @@
 /** 
-
- */
+ * @file gnss_uart.c
+ * @brief GNSS UART driver implementation
+ * This module implements the UART driver for receiving GNSS data, including
+ * RTCM3 correction messages and NMEA sentences. It uses the ESP-IDF UART driver in event-driven mode,
+ * with a state machine to split the incoming byte stream into complete frames, validate them, and publish them to the appropriate queues for further processing by other tasks.
+ * The UART configuration is read from NVS at startup, allowing for flexible hardware setups. The driver also handles various UART events such as data reception,
+ * The COM2 of the UM980 module is used (irrelevant for this code but importnat for the content of some commands sent). 
+*/
 
 #include <driver/uart.h> // IDF 5.x: provided by esp_driver_uart component
 #include <driver/gpio.h>

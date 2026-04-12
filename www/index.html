@@ -45,10 +45,52 @@
             max-width: 95vw;
             width: 300px;
         }
+
+        .uart-flow-row {
+            align-items: flex-start;
+        }
+
+        .uart-flow-control {
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+            flex-wrap: nowrap;
+        }
+
+        .uart-flow-control .uart-flow-label {
+            margin-bottom: 0;
+            min-width: 4.5rem;
+        }
+
+        .uart-flow-input.disabled {
+            opacity: 0.75;
+            filter: blur(5px);
+            pointer-events: none;
+        }
+
+        .uart-flow-control .custom-control {
+            margin-bottom: 0;
+            flex: 0 0 auto;
+        }
+
+        .uart-flow-control .custom-control-label {
+            margin-bottom: 0;
+        }
+
+        .uart-flow-input {
+            display: flex;
+            align-items: center;
+            flex: 0 0 auto;
+        }
+
+        .uart-flow-pin {
+            max-width: 5.5rem;
+            flex: 0 0 5.5rem;
+        }
     </style>
     <script>
-        const releases_api_url = 'https://api.github.com/';
-        const releases_html_url = 'https://github.com/';
+        const releases_api_url = 'https://api.github.com/repos/B0rader0/RTKBase/releases';
+        const releases_html_url = 'https://github.com/B0rader0/RTKBase/releases';
 
         $.fn.serializeObject = function() {
             var o = {};
@@ -161,13 +203,6 @@
             checkDisableIfs();
 
             form.find(":input").on('change', checkDisableIfs);
-
-            $('#switch-uart').on('click', function() {
-                if (confirm("WARNING\n\nThese settings are mainly for development purposes and do not normally have to be changed. With a standard ESP32 XBee device the only setting you may want to change is the UART baud rate. DO NOT PROCEED unless you know what you are doing.")) {
-                    $(this).hide();
-                    checkDisableIfs();
-                }
-            });
 
             const projectVersionText = $('#project-version');
 
@@ -475,7 +510,7 @@
 <body class="bg-light">
     <div class="container">
         <div class="pt-5 text-center">
-            <h2>RTK Config <a id="project-version" href="https://github.com/nebkat/esp32-xbee/releases" class="text-muted small"></a> <a id="prerelease-available" class="text-info small" style="display: none">(beta available)</a></h2>
+            <h2>RTK Base Config <a id="project-version" href="https://github.com/B0rader0/RTKBase/releases" class="text-muted small"></a> <a id="prerelease-available" class="text-info small" style="display: none">(beta available)</a></h2>
             <p class="lead">Adjust the settings below and then click on "Submit". The device will restart with the new settings applied. If you have adjusted WiFi settings the device may be moved onto a new IP address, or require you to reconnect to its access point.</p>
         </div>
         <form class="needs-validation" id="form" novalidate>
@@ -852,33 +887,35 @@
                                     </select>
                                 </div>
                             </div>
-                            <div class="form-row">
-                                <div class="col-3">
-                                    <label class="d-block">Log forward  <small class="text-muted" data-toggle="tooltip" title="If enabled, log messages (normally sent to UART1, and visible on the /log.html page) are forwarded to the main UART, primarily for debugging purposes. This setting can interfere with normal communication over UART0.">?</small></label>
-                                    <div class="btn-group btn-group-toggle d-flex" data-toggle="buttons">
-                                        <label class="btn btn-outline-warning">
-                                            <input type="checkbox" value="1" name="uart_log_fwd"> Print
-                                        </label>
+                            <div class="form-row mb-2">
+                                <div class="col">
+                                    <label class="d-block mb-0">Flow control</label>
+                                </div>
+                            </div>
+                            <div class="form-row uart-flow-row">
+                                <div class="col-md-6 col-12 mb-3 mb-md-0">
+                                    <div class="uart-flow-control">
+                                        <label class="uart-flow-label">RTS pin</label>
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" name="uart_fc_rts" value="1" class="custom-control-input" id="switch-uart-rts">
+                                            <label class="custom-control-label" for="switch-uart-rts"></label>
+                                        </div>
+                                        <div class="uart-flow-input" data-disable-if="#switch-uart-rts">
+                                            <input type="number" name="uart_rts_pin" class="form-control uart-flow-pin" placeholder="22" value="22" required>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="col-5">
-                                    <label class="d-block">Flow control</label>
-                                    <div class="btn-group btn-group-toggle d-flex" data-toggle="buttons">
-                                        <label class="btn btn-outline-success">
-                                            <input type="checkbox" value="1" name="uart_fc_rts"> RTS
-                                        </label>
-                                        <label class="btn btn-outline-primary">
-                                            <input type="checkbox" value="1" name="uart_fc_cts"> CTS
-                                        </label>
+                                <div class="col-md-6 col-12">
+                                    <div class="uart-flow-control">
+                                        <label class="uart-flow-label">CTS pin</label>
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" name="uart_fc_cts" value="1" class="custom-control-input" id="switch-uart-cts">
+                                            <label class="custom-control-label" for="switch-uart-cts"></label>
+                                        </div>
+                                        <div class="uart-flow-input" data-disable-if="#switch-uart-cts">
+                                            <input type="number" name="uart_cts_pin" class="form-control uart-flow-pin" placeholder="19" value="19" required>
+                                        </div>
                                     </div>
-                                </div>
-                                <div class="col">
-                                    <label>RTS pin</label>
-                                    <input type="number" name="uart_rts_pin" data-disable-if="input[type='checkbox'][name='uart_fc_rts']" class="form-control" placeholder="22" value="22" required>
-                                </div>
-                                <div class="col">
-                                    <label>CTS pin</label>
-                                    <input type="number" name="uart_cts_pin" data-disable-if="input[type='checkbox'][name='uart_fc_cts']" class="form-control" placeholder="19" value="19" required>
                                 </div>
                             </div>
                         </div>
@@ -1059,10 +1096,21 @@
             </div>
         </form>
     </div>
+    <div class="container mb-3">
+        <div class="border-top pt-3 text-center">
+            <small class="text-muted mr-2">Tools:</small>
+            <a href="/" class="mr-3">Home</a>
+            <a href="/config" class="mr-3">Config JSON</a>
+            <a href="/status" class="mr-3">Status JSON</a>
+            <a href="/log" class="mr-3">Log Text</a>
+            <a href="/log.html" class="mr-3">Log Viewer</a>
+            <a href="/core_dump">Core Dump</a>
+        </div>
+    </div>
     <footer id="footer" class="bg-dark">
         <div class="container">
             <div class="text-center text-light">
-                <small>&copy; <a href="http://bar.de" class="text-white">Boyan Radev</a> 2020 - <a href="https://github.com/" class="text-white">GitHub</a> - <a href="https://github.com/ class="text-white">Project</a> - Uptime <span class="uptime">loading...</span> - Heap <span class="heap">loading...</span></small>
+                <small>&copy; <a href="http://bar.de" class="text-white">Boyan Radev</a> 2020 - <a href="https://github.com/B0rader0" class="text-white">GitHub</a> - <a href="https://github.com/B0rader0/RTKBase" class="text-white">Project</a> - Uptime <span class="uptime">loading...</span> - Heap <span class="heap">loading...</span></small>
             </div>
         </div>
     </footer>
