@@ -36,6 +36,7 @@
 #include <lwip/sockets.h>
 #include <esp_timer.h>
 #include "web_server.h"
+#include "tcp_server.h"
 
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -519,6 +520,15 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
 
 }
 
+static esp_err_t tcp_server_disconnect_post_handler(httpd_req_t *req) {
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", tcp_server_disconnect_client());
+
+    return json_response(req, root);
+}
+
 static esp_err_t status_get_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
@@ -546,6 +556,10 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
         cJSON_AddNumberToObject(rate, "in", values.rate_in);
         cJSON_AddNumberToObject(rate, "out", values.rate_out);
     }
+
+    cJSON *tcp_server = cJSON_AddObjectToObject(root, "tcp_server");
+    cJSON_AddBoolToObject(tcp_server, "connected", tcp_server_client_connected());
+    cJSON_AddStringToObject(tcp_server, "endpoint", tcp_server_client_endpoint());
 
     // Sockets
     cJSON *sockets = cJSON_AddArrayToObject(root, "sockets");
@@ -643,7 +657,11 @@ static esp_err_t register_uri_handler(httpd_handle_t server, const char *path, h
             .method     = method,
             .handler    = handler
     };
-    return httpd_register_uri_handler(server, &uri_config_get);
+    esp_err_t err = httpd_register_uri_handler(server, &uri_config_get);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register URI handler %s [%d]: %s", path, method, esp_err_to_name(err));
+    }
+    return err;
 }
 
 static httpd_handle_t web_server_start(void)
@@ -661,12 +679,14 @@ static httpd_handle_t web_server_start(void)
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
+    config.max_uri_handlers = 10;
 
     // Start the httpd server
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
         register_uri_handler(server, "/config", HTTP_GET, config_get_handler);
         register_uri_handler(server, "/config", HTTP_POST, config_post_handler);
+        register_uri_handler(server, "/tcp_server/disconnect", HTTP_POST, tcp_server_disconnect_post_handler);
         register_uri_handler(server, "/status", HTTP_GET, status_get_handler);
         register_uri_handler(server, "/log", HTTP_GET, log_get_handler);
         register_uri_handler(server, "/core_dump", HTTP_GET, core_dump_get_handler);

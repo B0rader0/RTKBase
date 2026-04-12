@@ -211,11 +211,6 @@ const config_item_t CONFIG_ITEMS[] = {
         .type = TYPE_CFG_ITEM_BOOL,
         .def.enabled = false
     },
-    {
-        .key = KEY_CONFIG_UART_LOG_FORWARD,
-        .type = TYPE_CFG_ITEM_BOOL,
-        .def.enabled = false
-    },
 
     // WiFi
     {// WiFi AP (access point)

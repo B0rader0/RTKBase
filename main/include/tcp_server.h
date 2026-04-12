@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -11,3 +12,6 @@ typedef struct {
 } raw_frame_t;
 
 void post_raw_gnss_data_tcp(const raw_frame_t *frame);
+bool tcp_server_client_connected(void);
+bool tcp_server_disconnect_client(void);
+const char *tcp_server_client_endpoint(void);

@@ -4,6 +4,7 @@
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include <string.h>
+#include <stdio.h>
 #include <errno.h>              // errno
 #include <fcntl.h>
 #include <driver/uart.h>
@@ -11,7 +12,6 @@
 
 static const char *TAG = "TCP_SERVER";
 
-#define MAX_CLIENTS 4
 #define TCP_QUEUE_DEPTH 8
 
 /**
@@ -22,64 +22,109 @@ static const char *TAG = "TCP_SERVER";
 #define INVALID_SOCK (-1)
 
 /**
- * @brief Time in ms to yield to all tasks when a non-blocking socket would block
- *
- * Non-blocking socket operations are typically executed in a separate task validating
- * the socket status. Whenever the socket returns `EAGAIN` (idle status, i.e. would block)
- * we have to yield to all tasks to prevent lower priority tasks from starving.
+ * @brief Time in ms to wait before retrying a non-blocking socket send
  */
-#define YIELD_TO_ALL_MS 50
+#define SOCKET_RETRY_MS 5
 
-int client_sockets[MAX_CLIENTS];
+/**
+ * @brief Time in ms to sleep when the TCP server loop had no work to do
+ *
+ * Keep this short so the server behaves like a transparent serial cable for
+ * tools such as UPrecise, while still yielding CPU when the socket is idle.
+ */
+#define IDLE_POLL_MS 5
+
+#define DELAY_TICKS_MS(ms) ((TickType_t) ((pdMS_TO_TICKS(ms) > 0) ? pdMS_TO_TICKS(ms) : 1))
+
+static int client_socket = INVALID_SOCK;
+static volatile bool disconnect_requested = false;
+static char client_endpoint[64] = "";
 
 QueueHandle_t q_tcp_server   = NULL; // UART raw data → UPrecise TCP server
     
+static bool accept_should_retry(int err);
 
+static void tcp_server_drain_queue(void)
+{
+    raw_frame_t dropped_frame;
+
+    if (q_tcp_server == NULL) {
+        return;
+    }
+
+    while (xQueueReceive(q_tcp_server, &dropped_frame, 0) == pdTRUE) {
+    }
+}
+
+bool tcp_server_client_connected(void)
+{
+    return client_socket != INVALID_SOCK;
+}
+
+const char *tcp_server_client_endpoint(void)
+{
+    return client_endpoint;
+}
+
+bool tcp_server_disconnect_client(void)
+{
+    int sock = client_socket;
+
+    if (sock == INVALID_SOCK) {
+        return false;
+    }
+
+    disconnect_requested = true;
+
+    // Force the active session to break immediately so the TCP task will
+    // observe the disconnect even if the request arrives between loop passes.
+    shutdown(sock, SHUT_RDWR);
+
+    return true;
+}
 
 /**
  * @brief Utility to log socket errors
  *
- * @param[in] tag Logging tag
  * @param[in] sock Socket number
  * @param[in] err Socket errno
  * @param[in] message Message to print
  */
-static void log_socket_error(const char *tag, const int sock, const int err, const char *message)
+static void log_socket_error(const int sock, const int err, const char *message)
 {
-    ESP_LOGE(tag, "[sock=%d]: %s\n"
+    ESP_LOGE(TAG, "[sock=%d]: %s\n"
                   "error=%d: %s", sock, message, err, strerror(err));
 } // log_socket_error
 
 /**
- * @brief To be called from the GNSS UART task whenever new data is received from the UART and needs to be sent to TCP clients.
- * Checks if the queue for TCP server is not NULL, i.e. the TCP server is enabled.
- * Then checks if there are any clients connected to the TCP server.
- * If clients are connected, copies the data to a pool frame and enqueues it to the TCP server queue for sending to clients.
- * The frame type is different as no reference counting is needed for the TCP server as it sends raw data and does not need to keep track of how many consumers are using the frame.
+ * @brief Enqueue raw GNSS UART data for forwarding to the TCP client.
  *
- * @param[in] data pointer to the data received from UART
- * @param[in] len length of the data received from UART
+ * If the TCP server is disabled or no client is connected, the frame is
+ * discarded. If the queue is full, the oldest queued frame is dropped so the
+ * most recent UART data is preserved.
+ *
+ * @param[in] frame Raw UART chunk to forward
  */
 void post_raw_gnss_data_tcp(const raw_frame_t *frame)
 {
+    raw_frame_t dropped_frame;
+
     if(q_tcp_server == NULL) {
         return; // TCP server is not enabled, discard the data
     }
 
-    // Check if there are any clients connected to the TCP server
-    bool has_clients = false;
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (client_sockets[i] != INVALID_SOCK) {
-            has_clients = true;
-            break;
-        }
-    }
-
-    if (!has_clients) {
+    if (client_socket == INVALID_SOCK) {
         return; // No clients connected, discard the data
     }
-    // Enqueue the data to the TCP server queue for sending to clients
-    xQueueSend(q_tcp_server, frame, 0); // Non-blocking send, as we don't want to block the UART task if the queue is full
+
+    // Prefer the newest UART data over stale queued data if the client falls behind.
+    while (xQueueSend(q_tcp_server, frame, 0) != pdTRUE) {
+        if (xQueueReceive(q_tcp_server, &dropped_frame, 0) != pdTRUE) {
+            ESP_LOGW(TAG, "TCP server queue full, unable to drop stale data for %u-byte frame", (unsigned)frame->len);
+            return;
+        }
+        ESP_LOGW(TAG, "TCP server queue full, dropped stale %u-byte frame", (unsigned)dropped_frame.len);
+    }
 
 } // post_raw_gnss_data_tcp
 
@@ -87,7 +132,6 @@ void post_raw_gnss_data_tcp(const raw_frame_t *frame)
  * @brief Tries to receive data from specified sockets in a non-blocking way,
  *        i.e. returns immediately if no data.
  *
- * @param[in] tag Logging tag
  * @param[in] sock Socket for reception
  * @param[out] data Data pointer to write the received data
  * @param[in] max_len Maximum size of the allocated space for receiving data
@@ -95,20 +139,24 @@ void post_raw_gnss_data_tcp(const raw_frame_t *frame)
  *          >0 : Size of received data
  *          =0 : No data available
  *          -1 : Error occurred during socket read operation
- *          -2 : Socket is not connected, to distinguish between an actual socket error and active disconnection
+ *          -2 : Socket has been closed or disconnected
  */
-static int try_receive(const char *tag, const int sock, char * data, size_t max_len)
+static int try_receive(const int sock, char * data, size_t max_len)
 {
     int len = recv(sock, data, max_len, 0);
+    if (len == 0) {
+        ESP_LOGI(TAG, "[sock=%d]: Connection closed by peer", sock);
+        return -2;
+    }
     if (len < 0) {
         if (errno == EINPROGRESS || errno == EAGAIN || errno == EWOULDBLOCK) {
             return 0;   // Not an error
         }
         if (errno == ENOTCONN) {
-            ESP_LOGW(tag, "[sock=%d]: Connection closed", sock);
+            ESP_LOGW(TAG, "[sock=%d]: Connection closed", sock);
             return -2;  // Socket has been disconnected
         }
-        log_socket_error(tag, sock, errno, "Error occurred during receiving");
+        log_socket_error(sock, errno, "Error occurred during receiving");
         return -1;
     }
 
@@ -116,28 +164,51 @@ static int try_receive(const char *tag, const int sock, char * data, size_t max_
 }  //try_receive
 
 /**
- * @brief Sends the specified data to the socket. This function blocks until all bytes got sent.
+ * @brief Sends the specified data to the socket with bounded retries for
+ *        non-blocking sockets.
  *
- * @param[in] tag Logging tag
  * @param[in] sock Socket to write data
  * @param[in] data Data to be written
  * @param[in] len Length of the data
  * @return
- *          >0 : Size the written data
- *          -1 : Error occurred during socket write operation
+ *          >0 : Size of the written data
+ *          -1 : Error occurred during socket write operation or the client
+ *               did not become writable within the retry limit
  */
-static int socket_send(const char *tag, const int sock, const uint8_t *data, const size_t len)
+static int socket_send(const int sock, const uint8_t *data, const size_t len)
 {
-    int to_write = len;
-    while (to_write > 0) {
-        int written = send(sock, data + (len - to_write), to_write, 0);
-        if (written < 0 && errno != EINPROGRESS && errno != EAGAIN && errno != EWOULDBLOCK) {
-            log_socket_error(tag, sock, errno, "Error occurred during sending");
+    size_t offset = 0;
+    int retries = 0;
+    const int max_retries = 10;
+
+    while (offset < len) {
+        int written = send(sock, data + offset, len - offset, 0);
+
+        if (written > 0) {
+            offset += written;
+            retries = 0;
+            continue;
+        }
+
+        if (written == 0) {
+            ESP_LOGW(TAG, "[sock=%d]: send() returned 0", sock);
             return -1;
         }
-        to_write -= written;
+
+        if (errno == EINPROGRESS || errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (++retries > max_retries) {
+                ESP_LOGW(TAG, "[sock=%d]: send retry limit reached", sock);
+                return -1;
+            }
+            vTaskDelay(DELAY_TICKS_MS(SOCKET_RETRY_MS));
+            continue;
+        }
+
+        log_socket_error(sock, errno, "Error occurred during sending");
+        return -1;
     }
-    return len;
+
+    return (int)offset;
 } //socket_send
 
 /**
@@ -158,36 +229,88 @@ static inline char* get_clients_address(struct sockaddr_storage *source_addr)
     return address_str;
 }
 
+static uint16_t get_client_port(const struct sockaddr_storage *source_addr)
+{
+    if (source_addr->ss_family == PF_INET) {
+        return ntohs(((const struct sockaddr_in *)source_addr)->sin_port);
+    }
+
+    return 0;
+}
+
+static void close_socket_gracefully(const int sock)
+{
+    char discard[64];
+
+    if (sock == INVALID_SOCK) {
+        return;
+    }
+
+    shutdown(sock, SHUT_WR);
+
+    while (recv(sock, discard, sizeof(discard), MSG_DONTWAIT) > 0) {
+    }
+
+    close(sock);
+}
+
+static void reject_pending_client(int listening_socket)
+{
+    struct sockaddr_storage source_addr;
+    socklen_t addr_len = sizeof(source_addr);
+    int pending_socket = accept(listening_socket, (struct sockaddr *)&source_addr, &addr_len);
+
+    if (pending_socket < 0) {
+        if (!accept_should_retry(errno)) {
+            log_socket_error(listening_socket, errno, "Error when rejecting connection");
+        }
+        return;
+    }
+
+    ESP_LOGW(TAG, "[sock=%d]: Rejecting connection from IP:%s, client already connected",
+             pending_socket, get_clients_address(&source_addr));
+    close_socket_gracefully(pending_socket);
+}
+
+static bool accept_should_retry(int err)
+{
+    return err == EWOULDBLOCK || err == EAGAIN || err == EINTR ||
+           err == EMFILE || err == ENFILE;
+}
+
 
 void task_tcp_server(void *pvParameters)
 {
     static char rx_buffer[128];
-/* 
-    struct addrinfo hints = { 
-        .ai_socktype = SOCK_STREAM,
-        .ai_family = AF_INET
-    };
-    */ 
     int listening_socket = INVALID_SOCK;
     
-    // Prepare a list of file descriptors to hold client's sockets, mark all of them as invalid, i.e. available
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        client_sockets[i] = INVALID_SOCK;
-    }
+    client_socket = INVALID_SOCK;
+    disconnect_requested = false;
+    client_endpoint[0] = '\0';
 
     // Creating a listener socket
     listening_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
     if (listening_socket < 0) {
-        log_socket_error(TAG, listening_socket, errno, "Unable to create socket");
+        log_socket_error(listening_socket, errno, "Unable to create socket");
         goto error;
     }
     ESP_LOGI(TAG, "Listener socket created");
 
+    int opt = 1;
+    if (setsockopt(listening_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) != 0) {
+        log_socket_error(listening_socket, errno, "Unable to set SO_REUSEADDR");
+        goto error;
+    }
+
     // Marking the socket as non-blocking
     int flags = fcntl(listening_socket, F_GETFL);
+    if (flags == -1) {
+        log_socket_error(listening_socket, errno, "Unable to get socket flags");
+        goto error;
+    }
     if (fcntl(listening_socket, F_SETFL, flags | O_NONBLOCK) == -1) {
-        log_socket_error(TAG, listening_socket, errno, "Unable to set socket non blocking");
+        log_socket_error(listening_socket, errno, "Unable to set socket non blocking");
         goto error;
     }
     ESP_LOGI(TAG, "Socket marked as non blocking");
@@ -204,15 +327,15 @@ void task_tcp_server(void *pvParameters)
 
     int err = bind(listening_socket, (struct sockaddr *)&srv, sizeof(srv));
     if (err != 0) {
-        log_socket_error(TAG, listening_socket, errno, "Socket unable to bind");
+        log_socket_error(listening_socket, errno, "Socket unable to bind");
         goto error;
     }
     ESP_LOGI(TAG, "Socket bound on %s:%d", inet_ntoa(srv.sin_addr), sin_p);
     
-    // Set queue (backlog) of pending connections to one (can be more)
-    err = listen(listening_socket, 1);
+    // Single-client server; allow a small pending backlog for reconnect races.
+    err = listen(listening_socket, 2);
     if (err != 0) {
-        log_socket_error(TAG, listening_socket, errno, "Error occurred during listen");
+        log_socket_error(listening_socket, errno, "Error occurred during listen");
         goto error;
     }
     ESP_LOGI(TAG, "Socket listening");
@@ -221,205 +344,141 @@ void task_tcp_server(void *pvParameters)
     cfg_get_u8(KEY_CONFIG_UART_NUM, &uart_port);
 
     q_tcp_server = xQueueCreate(TCP_QUEUE_DEPTH, sizeof(raw_frame_t));
+    if (q_tcp_server == NULL) {
+        ESP_LOGE(TAG, "Failed to create TCP server queue");
+        goto error;
+    }
 
-    // Main loop for accepting new connections and serving all connected clients
+    // Main loop for accepting a connection and serving the connected client
     while (1) {
+        bool did_work = false;
         struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
         socklen_t addr_len = sizeof(source_addr);
 
-        // Find a free socket
-        int new_sock_index = 0;
-        for (new_sock_index = 0; new_sock_index < MAX_CLIENTS; ++new_sock_index) {
-            if (client_sockets[new_sock_index] == INVALID_SOCK) {
-                break;
-            }
+        if (disconnect_requested && client_socket != INVALID_SOCK) {
+            int sock = client_socket;
+            client_socket = INVALID_SOCK;
+            disconnect_requested = false;
+            tcp_server_drain_queue();
+            shutdown(sock, SHUT_RDWR);
+            close(sock);
+            client_endpoint[0] = '\0';
+            ESP_LOGI(TAG, "[sock=%d]: Client disconnected by web request", sock);
+            did_work = true;
+        } else if (disconnect_requested) {
+            disconnect_requested = false;
         }
 
-        // We accept a new connection only if we have a free socket
-        if (new_sock_index < MAX_CLIENTS) {
-            // Try to accept a new connections
-            client_sockets[new_sock_index] = accept(listening_socket, (struct sockaddr *)&source_addr, &addr_len);
+        // Keep the server strictly single-client: reject any extra pending connection.
+        if (client_socket != INVALID_SOCK) {
+            reject_pending_client(listening_socket);
+        }
 
-            if (client_sockets[new_sock_index] < 0) {
-                if (errno == EWOULDBLOCK) { // The listener socket did not accepts any connection
-                                            // continue to serve open connections and try to accept again upon the next iteration
-                    ESP_LOGV(TAG, "No pending connections...");
+        // We accept a new connection only if we do not already have an active client.
+        if (client_socket == INVALID_SOCK) {
+            // Try to accept a new connections
+            client_socket = accept(listening_socket, (struct sockaddr *)&source_addr, &addr_len);
+
+            if (client_socket < 0) {
+                if (accept_should_retry(errno)) {
+                    if (errno == EMFILE || errno == ENFILE) {
+                        ESP_LOGW(TAG, "Socket limit reached while accepting client, will retry");
+                    } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                        ESP_LOGV(TAG, "No pending connections...");
+                    }
+                    // No pending connection or a transient resource shortage:
+                    // continue serving and try again on a later iteration.
                 } else {
-                    log_socket_error(TAG, listening_socket, errno, "Error when accepting connection");
+                    log_socket_error(listening_socket, errno, "Error when accepting connection");
                     goto error;
                 }
             } else {
                 // We have a new client connected -> print it's address
-                ESP_LOGI(TAG, "[sock=%d]: Connection accepted from IP:%s", client_sockets[new_sock_index], get_clients_address(&source_addr));
+                ESP_LOGI(TAG, "[sock=%d]: Connection accepted from IP:%s", client_socket, get_clients_address(&source_addr));
+                snprintf(client_endpoint, sizeof(client_endpoint), "%s:%u",
+                         get_clients_address(&source_addr),
+                         (unsigned)get_client_port(&source_addr));
+                did_work = true;
+
+                int flag = 1;
+                if (setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) != 0) {
+                    log_socket_error(client_socket, errno, "Unable to set TCP_NODELAY");
+                    close(client_socket);
+                    client_socket = INVALID_SOCK;
+                    continue;
+                }
 
                 // ...and set the client's socket non-blocking
-                flags = fcntl(client_sockets[new_sock_index], F_GETFL);
-                if (fcntl(client_sockets[new_sock_index], F_SETFL, flags | O_NONBLOCK) == -1) {
-                    log_socket_error(TAG, client_sockets[new_sock_index], errno, "Unable to set socket non blocking");
+                flags = fcntl(client_socket, F_GETFL);
+                if (flags == -1) {
+                    log_socket_error(client_socket, errno, "Unable to get socket flags");
+                    close(client_socket);
+                    client_socket = INVALID_SOCK;
+                    continue;
+                }
+                if (fcntl(client_socket, F_SETFL, flags | O_NONBLOCK) == -1) {
+                    log_socket_error(client_socket, errno, "Unable to set socket non blocking");
                     goto error;
                 }
-                ESP_LOGI(TAG, "[sock=%d]: Socket marked as non blocking", client_sockets[new_sock_index]);
+                ESP_LOGI(TAG, "[sock=%d]: Socket marked as non blocking", client_socket);
             }
         }
 
-        // We serve all the connected clients in this loop
-        for (int i = 0; i < MAX_CLIENTS; ++i) {
-            if (client_sockets[i] != INVALID_SOCK) {
+        // Serve the connected client.
+        if (client_socket != INVALID_SOCK) {
+            int len = try_receive(client_socket, rx_buffer, sizeof(rx_buffer));
+            if (len < 0) {
+                close(client_socket);
+                client_socket = INVALID_SOCK;
+                client_endpoint[0] = '\0';
+                did_work = true;
+            } else if (len > 0) {
+                // Prioritize command/response latency over stale background GNSS
+                // output so UPrecise can identify the receiver promptly.
+                tcp_server_drain_queue();
+                // Delay should be negligible as the TCP client is expected to send
+                // small config commands, not a continuous data stream.
+                uart_write_bytes(uart_port, rx_buffer, len); // TODO: handle UART write errors and disconnect the client if needed
+                did_work = true;
+            }
+        }
 
-                // This is an open socket -> try to serve it
-                int len = try_receive(TAG, client_sockets[i], rx_buffer, sizeof(rx_buffer));
-                if (len < 0) {
-                    // Error occurred within this client's socket -> close and mark invalid
-                    close(client_sockets[i]);
-                    client_sockets[i] = INVALID_SOCK;
-                } else if (len > 0) {
-                    // Received some data -> send to UART in a blockig way. 
-                    // Delay should be negligible as the TCP client is expected to send small config commands, not continuous data stream. 
-                    uart_write_bytes(uart_port, rx_buffer, len); // TODO: handle UART write errors and disconnect the client if needed
-                }
-            } // one client's socket
-        } // for all sockets
-
-        // ── Drain queue and send to all connected clients ─────────────────────
+        // ── Drain queue and send to the connected client ──────────────────────
         static raw_frame_t rf;
         while (xQueueReceive(q_tcp_server, &rf, 0) == pdTRUE) {
-            ESP_LOGI(TAG, "Sending data to clients: %d bytes", rf.len);
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (client_sockets[i] < 0) continue;
-                //int sent = send(client_sockets[i], rf.data, rf.len, MSG_DONTWAIT);
-                int sent = socket_send(TAG, client_sockets[i], rf.data, rf.len);
-                if (sent < 0) {
-                    ESP_LOGW(TAG, "Client %d send error, closing", i);
-                    close(client_sockets[i]);
-                    client_sockets[i] = INVALID_SOCK;
-                }
+            did_work = true;
+            if (client_socket == INVALID_SOCK) {
+                continue;
+            }
+
+            int sent = socket_send(client_socket, rf.data, rf.len);
+            if (sent < 0) {
+                ESP_LOGW(TAG, "Client send error, closing socket");
+                close(client_socket);
+                client_socket = INVALID_SOCK;
+                client_endpoint[0] = '\0';
             }
         }
 
-        // Yield to other tasks
-        vTaskDelay(pdMS_TO_TICKS(YIELD_TO_ALL_MS));
+        if (!did_work) {
+            vTaskDelay(DELAY_TICKS_MS(IDLE_POLL_MS));
+        }
     }
 
 error:
+    if (q_tcp_server != NULL) {
+        vQueueDelete(q_tcp_server);
+        q_tcp_server = NULL;
+    }
     if (listening_socket != INVALID_SOCK) {
         close(listening_socket);
     }
 
-    for (int i=0; i<MAX_CLIENTS; ++i) {
-        if (client_sockets[i] != INVALID_SOCK) {
-            close(client_sockets[i]);
-        }
+    if (client_socket != INVALID_SOCK) {
+        close(client_socket);
+        client_socket = INVALID_SOCK;
     }
+    client_endpoint[0] = '\0';
 
     vTaskDelete(NULL);
-
-
-
-/* 
-    //------- originad old code
-    int listen_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (listen_fd < 0) {
-        ESP_LOGE(TAG, "socket() failed");
-        vTaskDelete(NULL);
-        return;
-    }
-
-    int opt = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-
-    uint16_t sin_p;
-    cfg_get_u16(KEY_CONFIG_TCP_SERVER_PORT, &sin_p);
-
-    struct sockaddr_in srv = {
-        .sin_family      = AF_INET,
-        .sin_port        = htons(sin_p),
-        .sin_addr.s_addr = htonl(INADDR_ANY),
-    };
-
-    if (bind(listen_fd, (struct sockaddr *)&srv, sizeof(srv)) < 0) {
-        ESP_LOGE(TAG, "bind() failed");
-        close(listen_fd);
-        vTaskDelete(NULL);
-        return;
-    }
-    listen(listen_fd, MAX_CLIENTS);
-    ESP_LOGI(TAG, "TCP server listening on port %d", sin_p);
-
-    int clients[MAX_CLIENTS];
-    for (int i = 0; i < MAX_CLIENTS; i++) clients[i] = -1;
-
-    while (1) {
-        // ── Build fd_set ──────────────────────────────────────────────────────
-        fd_set read_fds;
-        FD_ZERO(&read_fds);
-        FD_SET(listen_fd, &read_fds);
-        int max_fd = listen_fd;
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i] >= 0) {
-                FD_SET(clients[i], &read_fds);
-                if (clients[i] > max_fd) max_fd = clients[i];
-            }
-        }
-
-        struct timeval tv = { .tv_sec = 0, .tv_usec = 1000 };
-        select(max_fd + 1, &read_fds, NULL, NULL, &tv);
-
-        // ── Accept new connections ────────────────────────────────────────────
-        if (FD_ISSET(listen_fd, &read_fds)) {
-            struct sockaddr_in cli_addr;
-            socklen_t cli_len = sizeof(cli_addr);
-            int new_fd = accept(listen_fd, (struct sockaddr *)&cli_addr, &cli_len);
-            if (new_fd >= 0) {
-                int flag = 1;
-                setsockopt(new_fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-                bool accepted = false;
-                for (int i = 0; i < MAX_CLIENTS; i++) {
-                    if (clients[i] < 0) {
-                        clients[i] = new_fd;
-                        char ip_str[16];
-                        inet_ntop(AF_INET, &cli_addr.sin_addr, ip_str, sizeof(ip_str));
-                        ESP_LOGI(TAG, "Client %d connected: %s", i, ip_str);
-                        accepted = true;
-                        break;
-                    }
-                }
-                if (!accepted) {
-                    ESP_LOGW(TAG, "Max clients reached, refusing");
-                    close(new_fd);
-                }
-            }
-        }
-
-        // ── Detect disconnects (readable with 0 bytes) ────────────────────────
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i] >= 0 && FD_ISSET(clients[i], &read_fds)) {
-                uint8_t tmp;
-                int n = recv(clients[i], &tmp, 1, MSG_DONTWAIT);
-                if (n == 0 || (n < 0 && errno != EAGAIN)) {
-                    ESP_LOGI(TAG, "Client %d disconnected", i);
-                    close(clients[i]);
-                    clients[i] = -1;
-                }
-                // Hook: forward config commands from UPrecise to UART TX here.
-            }
-        }
-
-        // ── Drain queue and send to all connected clients ─────────────────────
-        pool_frame_t *f;
-        fixme - memory for f needs to be allocated!!!!
-        while (xQueueReceive(q_tcp_server, &f, 0) == pdTRUE) {
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (clients[i] < 0) continue;
-                int sent = send(clients[i], f->data, f->len, MSG_DONTWAIT);
-                if (sent < 0) {
-                    ESP_LOGW(TAG, "Client %d send error, closing", i);
-                    close(clients[i]);
-                    clients[i] = -1;
-                }
-            }
-            pool_release(f);    // done with this frame
-        }
-    }
- */
 }

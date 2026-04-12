@@ -300,6 +300,8 @@
 
             var wifiApStatusText = form.find('.wifi-ap-status');
             var wifiStaStatusText = form.find('.wifi-sta-status');
+            var tcpServerStatusText = form.find('.tcp-server-status');
+            var tcpServerDisconnectButton = form.find('.tcp-server-disconnect');
 
             var streamStatsTexts = form.find('.stream-stats');
 
@@ -360,6 +362,15 @@
                             " bytes out (" + (stats.rate.out * 8) + "bps)");
                     });
 
+                    if (data.tcp_server && data.tcp_server.connected) {
+                        var endpoint = data.tcp_server.endpoint || "";
+                        tcpServerStatusText.text(endpoint ? ("Client connected from " + endpoint) : "Client connected");
+                        tcpServerDisconnectButton.prop('disabled', false);
+                    } else {
+                        tcpServerStatusText.text("No client connected");
+                        tcpServerDisconnectButton.prop('disabled', true);
+                    }
+
                     // WiFi
                     let wifi = data.wifi;
 
@@ -392,6 +403,15 @@
                 });
             };
             statusUpdate();
+
+            tcpServerDisconnectButton.on('click', function() {
+                const button = $(this);
+                button.prop('disabled', true);
+                tcpServerStatusText.text("Disconnecting...");
+                $.post('tcp_server/disconnect').always(function() {
+                    button.prop('disabled', true);
+                });
+            });
 
             // WiFi Station networks list
             var wifiNetworksScanButton = form.find('.wifi-networks-scan');
@@ -469,14 +489,6 @@
                 wifiApIpMaxInput.val(max);
             }).trigger('change');
 
-            var socketClientConnectMessageInput = form.find('input[name="sck_cli_msg"]');
-            var socketClientConnectMessageUnformattedInput = form.find('input[name="sck_cli_msg_unformatted"]');
-            socketClientConnectMessageInput.on('change', function() {
-                socketClientConnectMessageUnformattedInput.val(print_escape($(this).val()));
-            });
-            socketClientConnectMessageUnformattedInput.on('change', function() {
-                socketClientConnectMessageInput.val(print_unescape($(this).val()));
-            });
         });
 
         function autoTab(target) {
@@ -719,6 +731,94 @@
                             </div>
                         </div>
                     </div>
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            NTRIP client 1
+                            <small class="ntrip-client-stats stream-stats" data-stream="ntrip_client"></small>
+                            <div class="custom-control custom-switch d-inline float-right">
+                                <input type="checkbox" name="ntrip1_active" value="1" class="custom-control-input" id="switch-ntrip-client">
+                                <label class="custom-control-label" for="switch-ntrip-client"></label>
+                            </div>
+                        </div>
+                        <div class="card-body" data-disable-if="#switch-ntrip-client">
+                            <div class="form-row mb-3">
+                                <div class="col">
+                                    <label>Remote host and port</label>
+                                    <div class="input-group">
+                                        <input type="text" name="ntrip1_host" class="form-control" style="flex-grow: 3" required>
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text">:</span>
+                                        </div>
+                                        <input type="number" name="ntrip1_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <label>Mountpoint</label>
+                                    <div class="input-group">
+                                        <input type="text" name="ntrip1_mp" class="form-control" maxlength="32" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-row mb-3">
+                                <div class="col">
+                                    <label>Username</label>
+                                    <div class="input-group">
+                                        <input type="text" name="ntrip1_user" class="form-control">
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <label>Password</label>
+                                    <div class="input-group">
+                                        <input type="password" name="ntrip1_pass" class="form-control">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            NTRIP client 2
+                            <small class="ntrip-server-stats stream-stats" data-stream="ntrip_server"></small>
+                            <div class="custom-control custom-switch d-inline float-right">
+                                <input type="checkbox" name="ntrip2_active" value="1" class="custom-control-input" id="switch-ntrip-server">
+                                <label class="custom-control-label" for="switch-ntrip-server"></label>
+                            </div>
+                        </div>
+                        <div class="card-body" data-disable-if="#switch-ntrip-server">
+                            <div class="form-row mb-3">
+                                <div class="col">
+                                    <label>Remote host and port</label>
+                                    <div class="input-group">
+                                        <input type="text" name="ntrip2_host" class="form-control" style="flex-grow: 3" required>
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text">:</span>
+                                        </div>
+                                        <input type="number" name="ntrip2_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <label>Mountpoint</label>
+                                    <div class="input-group">
+                                        <input type="text" name="ntrip2_mp" class="form-control" maxlength="32" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-row mb-3">
+                                <div class="col">
+                                    <label>Username</label>
+                                    <div class="input-group">
+                                        <input type="text" name="ntrip2_user" class="form-control">
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <label>Password</label>
+                                    <div class="input-group">
+                                        <input type="password" name="ntrip2_pass" class="form-control">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-xl-6">
                     <div class="card mb-3">
@@ -797,6 +897,21 @@
                                             <span class="input-group-text">-</span>
                                         </div>
                                         <input type="number" name="w_ap_ip_max" value="254" disabled class="form-control text-center px-1">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            Base station host name
+                         </div>
+                        <div class="card-body">
+                            <div class="form-row mb-3">
+                                <div class="col">
+                                    <label>Host name</label>
+                                    <div class="input-group">
+                                        <input type="text" name="host_name" class="form-control" maxlength="32" required>
                                     </div>
                                 </div>
                             </div>
@@ -920,109 +1035,11 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-            <div class="row mb-3">
-                <div class="col">
-                    <input type="submit" class="form-control" value="Save and restart">
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-xl-6">
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            NTRIP client 1
-                            <small class="ntrip-client-stats stream-stats" data-stream="ntrip_client"></small>
-                            <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="ntrip1_active" value="1" class="custom-control-input" id="switch-ntrip-client">
-                                <label class="custom-control-label" for="switch-ntrip-client"></label>
-                            </div>
-                        </div>
-                        <div class="card-body" data-disable-if="#switch-ntrip-client">
-                            <div class="form-row mb-3">
-                                <div class="col">
-                                    <label>Remote host and port</label>
-                                    <div class="input-group">
-                                        <input type="text" name="ntrip1_host" class="form-control" style="flex-grow: 3" required>
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text">:</span>
-                                        </div>
-                                        <input type="number" name="ntrip1_port" maxlength="5" min="0" max="65535" class="form-control" required>
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Mountpoint</label>
-                                    <div class="input-group">
-                                        <input type="text" name="ntrip1_mp" class="form-control" maxlength="32" required>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="form-row mb-3">
-                                <div class="col">
-                                    <label>Username</label>
-                                    <div class="input-group">
-                                        <input type="text" name="ntrip1_user" class="form-control">
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Password</label>
-                                    <div class="input-group">
-                                        <input type="password" name="ntrip1_pass" class="form-control">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            NTRIP client 2
-                            <small class="ntrip-server-stats stream-stats" data-stream="ntrip_server"></small>
-                            <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="ntrip2_active" value="1" class="custom-control-input" id="switch-ntrip-server">
-                                <label class="custom-control-label" for="switch-ntrip-server"></label>
-                            </div>
-                        </div>
-                        <div class="card-body" data-disable-if="#switch-ntrip-server">
-                            <div class="form-row mb-3">
-                                <div class="col">
-                                    <label>Remote host and port</label>
-                                    <div class="input-group">
-                                        <input type="text" name="ntrip2_host" class="form-control" style="flex-grow: 3" required>
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text">:</span>
-                                        </div>
-                                        <input type="number" name="ntrip2_port" maxlength="5" min="0" max="65535" class="form-control" required>
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Mountpoint</label>
-                                    <div class="input-group">
-                                        <input type="text" name="ntrip2_mp" class="form-control" maxlength="32" required>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="form-row mb-3">
-                                <div class="col">
-                                    <label>Username</label>
-                                    <div class="input-group">
-                                        <input type="text" name="ntrip2_user" class="form-control">
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Password</label>
-                                    <div class="input-group">
-                                        <input type="password" name="ntrip2_pass" class="form-control">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
                             TCP server
                             <small class="socket-server-stats stream-stats" data-stream="socket_server"></small>
+                            <small class="tcp-server-status text-muted"></small>
                             <div class="custom-control custom-switch d-inline float-right">
                                 <input type="checkbox" name="tcp_srv_active" value="1" class="custom-control-input" id="switch-socket-server">
                                 <label class="custom-control-label" for="switch-socket-server"></label>
@@ -1035,6 +1052,9 @@
                                     <div class="input-group">
                                         <input type="number" name="tcp_srv_port" maxlength="5" min="0" max="65535" class="form-control" required>
                                     </div>
+                                </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <button type="button" class="tcp-server-disconnect btn btn-outline-danger" disabled>Disconnect client</button>
                                 </div>
                             </div>
                         </div>
@@ -1077,21 +1097,11 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            Base station host name
-                         </div>
-                        <div class="card-body">
-                            <div class="form-row mb-3">
-                                <div class="col">
-                                    <label>Host name</label>
-                                    <div class="input-group">
-                                        <input type="text" name="host_name" class="form-control" maxlength="32" required>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                </div>
+            </div>
+            <div class="row mb-3">
+                <div class="col">
+                    <input type="submit" class="form-control" value="Save and restart">
                 </div>
             </div>
         </form>
