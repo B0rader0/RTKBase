@@ -17,6 +17,7 @@
 
 #include <esp_http_server.h>
 #include <esp_log.h>
+#include <esp_system.h>
 #include <wifi.h>
 #include <cJSON.h>
 #include <sys/param.h>
@@ -35,6 +36,7 @@
 #include <esp32/rom/crc.h>
 #include <lwip/sockets.h>
 #include <esp_timer.h>
+#include <freertos/task.h>
 #include "web_server.h"
 #include "tcp_server.h"
 
@@ -65,6 +67,7 @@ enum auth_method {
 
 static char *basic_authentication;
 static enum auth_method auth_method;
+static bool restart_scheduled;
 
 #define IS_FILE_EXT(filename, ext) \
     (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
@@ -483,6 +486,13 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     return json_response(req, root);
 }
 
+static void delayed_restart_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_LOGI(TAG, "Restarting firmware after configuration update");
+    esp_restart();
+}
+
 static esp_err_t config_post_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
@@ -514,9 +524,27 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
     root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "success", true);
 
-    return json_response(req, root);
+    esp_err_t response_err = json_response(req, root);
+    if (response_err != ESP_OK) {
+        return response_err;
+    }
 
-    // cfg_reset_restart(); - we need to restart?
+    if (!restart_scheduled) {
+        BaseType_t task_ok = xTaskCreate(
+                delayed_restart_task,
+                "cfg_restart",
+                2048,
+                NULL,
+                TASK_PRIORITY_INTERFACE,
+                NULL);
+        if (task_ok != pdPASS) {
+            ESP_LOGE(TAG, "Failed to schedule restart after config update");
+            return ESP_FAIL;
+        }
+        restart_scheduled = true;
+    }
+
+    return ESP_OK;
 
 }
 
@@ -678,6 +706,7 @@ static httpd_handle_t web_server_start(void)
 
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.stack_size = 6144;
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.max_uri_handlers = 10;
 

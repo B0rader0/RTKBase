@@ -3,36 +3,21 @@
  */
 
 #include <web_server.h>
-#include <esp_sntp.h>
 #include <core_dump.h>
-#include <esp_ota_ops.h>
 #include <stream_stats.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <esp_system.h>
 #include <esp_log.h>
-#include <driver/uart.h>
-#include <driver/ledc.h>
 #include "nvs_config.h"
 #include "wifi.h"
 #include "gnss_uart.h"
 #include "reset_button.h"
-#include "rtk_base.h"
+#include "frame_pool.h"
 #include "ntrip_client.h"
+#include "ntrip_caster.h"
+#include "tcp_server.h"
 
 static const char *TAG = "MAIN";
-
-// ─── Shared queue handles (NULL = service disabled) ───────────────────────────
-QueueHandle_t q_ntrip_1      = NULL;
-QueueHandle_t q_ntrip_2      = NULL;
-QueueHandle_t q_ntrip_server = NULL;
-
-// ─── Task forward declarations ────────────────────────────────────────────────
-void task_frame_splitter(void *arg);
-void task_tcp_server(void *arg);
-void task_ntrip_client(void *arg);
-void task_ntrip_server(void *arg);
-void task_web_server(void *arg);
 
 static char *reset_reason_name(esp_reset_reason_t reason);
  
@@ -95,23 +80,6 @@ void app_main()
     // ── Frame pool ────────────────────────────────────────────────────────────
     pool_init();
    
-    // ── Queues (only for enabled services) ───────────────────────────────────
-    uint8_t enbld;
-
-    
-    cfg_get_u8(KEY_CONFIG_NTRIP1_ACTIVE, &enbld);
-    if (enbld)
-        q_ntrip_1 = xQueueCreate(FRAME_QUEUE_DEPTH, sizeof(pool_frame_t *));
-
-    cfg_get_u8(KEY_CONFIG_NTRIP2_ACTIVE, &enbld);
-    if (enbld)
-        q_ntrip_2 = xQueueCreate(FRAME_QUEUE_DEPTH, sizeof(pool_frame_t *));
-
-    cfg_get_u8(KEY_CONFIG_CASTER_ACTIVE, &enbld);
-    if (enbld)
-        q_ntrip_server = xQueueCreate(FRAME_QUEUE_DEPTH, sizeof(pool_frame_t *));
-    
-   
     // ── Tasks ─────────────────────────────────────────────────────────────────
     // Each task initializes its parameters from NVS and then starts running. 
     // The tasks are pinned to cores and prioritized as follows:
@@ -125,43 +93,10 @@ void app_main()
     //  web_server              |  0   |  3  | 16384  | large stack: page gen +
     //                          |      |     |        | field_select bufs + httpd
 
-    xTaskCreatePinnedToCore(task_gnss_reader, // reads and perfomrs frame splitting
-                            "gnss_reader",
-                            4096, NULL, 5, NULL, 1);
-    
-    cfg_get_u8(KEY_CONFIG_TCP_SERVER_ACTIVE, &enbld);
-    if (enbld)
-        xTaskCreatePinnedToCore(task_tcp_server, "tcp_srv",
-                                4096, NULL, 4, NULL, 0);
-
-    // Using the ques to infer which services are enabled, as the tasks need to be created conditionally based on the configuration, which is read in the task itself after it is created.
-    
-    
-                                // A parameter (1 or 2) is passed to the task to indicate which NTRIP client it is.
-    // The task reads the correct configuration values from NVS and connects to the correct server.
-    if (q_ntrip_1) {
-        ntrip_client_cfg_t *cfg = malloc(sizeof(ntrip_client_cfg_t));
-        cfg_get_str(KEY_CONFIG_NTRIP1_HOST, &cfg->host);
-        cfg_get_u16(KEY_CONFIG_NTRIP1_PORT, &cfg->port);
-        cfg_get_str(KEY_CONFIG_NTRIP1_MOUNTPOINT, &cfg->mountpoint);
-        cfg_get_str(KEY_CONFIG_NTRIP1_USERNAME, &cfg->username);
-        cfg_get_str(KEY_CONFIG_NTRIP1_PASSWORD, &cfg->password);
-        xTaskCreatePinnedToCore(task_ntrip_client, "ntrip_cli1", 5120, cfg, 4, NULL, 0);
-    }
-
-    // A parameter (1 or 2) is passed to the task to indicate which NTRIP client it is.
-    // The task reads the correct configuration values from NVS and connects to the correct server.
-    if (q_ntrip_2) {
-    ntrip_client_cfg_t *cfg = malloc(sizeof(ntrip_client_cfg_t));
-        cfg_get_str(KEY_CONFIG_NTRIP2_HOST, &cfg->host);
-        cfg_get_u16(KEY_CONFIG_NTRIP2_PORT, &cfg->port);
-        cfg_get_str(KEY_CONFIG_NTRIP2_MOUNTPOINT, &cfg->mountpoint);
-        cfg_get_str(KEY_CONFIG_NTRIP2_USERNAME, &cfg->username);
-        cfg_get_str(KEY_CONFIG_NTRIP2_PASSWORD, &cfg->password);
-        xTaskCreatePinnedToCore(task_ntrip_client, "ntrip_cli2", 5120, cfg, 4, NULL, 0);    }
-
-    if (q_ntrip_server)
-        xTaskCreatePinnedToCore(task_ntrip_server, "ntrip_srv", 5120, NULL, 4, NULL, 0);
+    gnss_uart_init();
+    tcp_server_init();
+    ntrip_client_init();
+    ntrip_caster_init();
 
     // Web server: 12288 bytes — cJSON heap alloc is lean but the blocking
     // wifi_manager_scan() call uses significant internal WiFi stack frames.

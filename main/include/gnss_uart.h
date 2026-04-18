@@ -1,6 +1,6 @@
 #pragma once
 
-//esp_err_t gnss_uart_init(); - initialzation happens in the reader task.
+#define UART_RX_BUF_SIZE 8192
 
-void task_gnss_reader(void *pvParams);
+void gnss_uart_init(void);
 

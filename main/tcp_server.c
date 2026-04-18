@@ -1,8 +1,6 @@
-#include "rtk_base.h"
 #include "nvs_config.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
-#include "lwip/netdb.h"
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>              // errno
@@ -43,6 +41,7 @@ static char client_endpoint[64] = "";
 QueueHandle_t q_tcp_server   = NULL; // UART raw data → UPrecise TCP server
     
 static bool accept_should_retry(int err);
+static void task_tcp_server(void *pvParameters);
 
 static void tcp_server_drain_queue(void)
 {
@@ -278,8 +277,7 @@ static bool accept_should_retry(int err)
            err == EMFILE || err == ENFILE;
 }
 
-
-void task_tcp_server(void *pvParameters)
+static void task_tcp_server(void *pvParameters)
 {
     static char rx_buffer[128];
     int listening_socket = INVALID_SOCK;
@@ -481,4 +479,15 @@ error:
     client_endpoint[0] = '\0';
 
     vTaskDelete(NULL);
+}
+
+void tcp_server_init(void)
+{
+    uint8_t enabled = 0;
+    cfg_get_u8(KEY_CONFIG_TCP_SERVER_ACTIVE, &enabled);
+    if (!enabled) {
+        return;
+    }
+
+    xTaskCreatePinnedToCore(task_tcp_server, "tcp_srv", 4096, NULL, 4, NULL, 0);
 }

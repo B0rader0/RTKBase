@@ -1,4 +1,4 @@
-#include "include/rtk_base.h"
+#include "frame_pool.h"
 #include "esp_log.h"
 
 static const char *TAG = "FRAME_POOL";
@@ -16,7 +16,7 @@ void pool_init(void)
         atomic_store(&s_pool[i].ref_count, 0);
     }
     ESP_LOGI(TAG, "Frame pool ready: %d slots x %d bytes = %d bytes static RAM",
-             FRAME_POOL_SIZE, (int)MAX_FRAME_SIZE,
+             FRAME_POOL_SIZE, (int)MAX_RTCM_FRAME,
              (int)(FRAME_POOL_SIZE * sizeof(pool_frame_t)));
 }
 

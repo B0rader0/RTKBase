@@ -9,19 +9,113 @@
 #include <nvs_flash.h>
 #include <esp_log.h>
 #include <string.h>
+#include <errno.h>
 #include <driver/uart.h>
 #include <esp_wifi_types.h>
 #include <driver/gpio.h>
 #include <cJSON.h>
-#include <esp_wifi.h>
 #include <esp_mac.h>
 
 #include "nvs_config.h"
-#include "gnss_uart.h"
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 
 static const char *TAG = "CONFIG";
+
+static bool json_get_bool_compat(cJSON *item, uint8_t *out_value)
+{
+    if (cJSON_IsBool(item)) {
+        *out_value = cJSON_IsTrue(item) ? 1 : 0;
+        return true;
+    }
+
+    if (cJSON_IsNumber(item)) {
+        double number = cJSON_GetNumberValue(item);
+        if (number == 0.0 || number == 1.0) {
+            *out_value = (uint8_t)number;
+            return true;
+        }
+        return false;
+    }
+
+    if (cJSON_IsString(item)) {
+        const char *value = cJSON_GetStringValue(item);
+        if (value == NULL) {
+            return false;
+        }
+        if (strcmp(value, "0") == 0 || strcasecmp(value, "false") == 0) {
+            *out_value = 0;
+            return true;
+        }
+        if (strcmp(value, "1") == 0 || strcasecmp(value, "true") == 0) {
+            *out_value = 1;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool json_get_u32_compat(cJSON *item, uint32_t max_value, uint32_t *out_value)
+{
+    if (cJSON_IsNumber(item)) {
+        double number = cJSON_GetNumberValue(item);
+        if (number < 0.0 || number > (double)max_value) {
+            return false;
+        }
+
+        uint32_t value = (uint32_t)number;
+        if ((double)value != number) {
+            return false;
+        }
+
+        *out_value = value;
+        return true;
+    }
+
+    if (cJSON_IsString(item)) {
+        const char *value = cJSON_GetStringValue(item);
+        char *end = NULL;
+        unsigned long parsed;
+
+        if (value == NULL || value[0] == '\0') {
+            return false;
+        }
+
+        errno = 0;
+        parsed = strtoul(value, &end, 10);
+        if (errno != 0 || end == value || *end != '\0' || parsed > max_value) {
+            return false;
+        }
+
+        *out_value = (uint32_t)parsed;
+        return true;
+    }
+
+    return false;
+}
+
+static bool json_get_ip4_array(cJSON *item, uint32_t *out_value)
+{
+    if (!cJSON_IsArray(item) || cJSON_GetArraySize(item) != 4) {
+        return false;
+    }
+
+    esp_ip4_addr_t ip;
+    ip.addr = 0;
+
+    for (int b = 0; b < 4; b++) {
+        cJSON *part = cJSON_GetArrayItem(item, b);
+        uint32_t octet = 0;
+        if (!json_get_u32_compat(part, 255, &octet)) {
+            return false;
+        }
+        ip.addr |= (octet << (b * 8));
+    }
+
+    *out_value = ip.addr;
+    return true;
+}
 
 // Global handle to a NVS partition, used for reading and writing configuration values. I
 // Risky as not clear when it is open and closed,
@@ -481,6 +575,7 @@ esp_err_t cfg_json_to_nvs(cJSON *root)
     esp_err_t res;
     nvs_handle_t h_config;
     cJSON *item = NULL;
+    bool had_error = false;
 
     res = nvs_open(CONFIG_PREFERENCES, NVS_READWRITE, &h_config);
     ESP_ERROR_CHECK(res);
@@ -489,50 +584,159 @@ esp_err_t cfg_json_to_nvs(cJSON *root)
     for (unsigned int i = 0; i < sizeof(CONFIG_ITEMS) / sizeof(config_item_t); i++)
     {
         item = cJSON_GetObjectItem(root, CONFIG_ITEMS[i].key);
-        if (item != NULL && cJSON_IsString(item)) {
-            const char *value = cJSON_GetStringValue(item);
-            if (strcmp(value, CFG_VALUE_UNCHANGED) != 0) {
-                switch (CONFIG_ITEMS[i].type) {
-                    case TYPE_CFG_ITEM_STR:
-                    case TYPE_CFG_ITEM_SECRET_STR:
-                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_str(h_config, CONFIG_ITEMS[i].key, value));
-                        continue;
-                    case TYPE_CFG_ITEM_IP:
-                        // Parse IP address from JSON array
-                        if (cJSON_IsArray(item)) {
-                            esp_ip4_addr_t ip;
-                            ip.addr = 0;
-                            for (int b = 0; b < 4; b++) {
-                                cJSON *ip_part = cJSON_GetArrayItem(item, b);
-                                if (ip_part && cJSON_IsNumber(ip_part)) {
-                                    ip.addr |= ((uint32_t)cJSON_GetNumberValue(ip_part) << (b * 8));
-                                }
-                            }
-                            ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u32(h_config, CONFIG_ITEMS[i].key, ip.addr));
-                        }
-                        continue;
-                    case TYPE_CFG_ITEM_BOOL:
-                    case TYPE_CFG_ITEM_UINT8:
-                        uint8_t uint8_value = atoi(value); //this may be an error if the types do not match
-                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u8(h_config, CONFIG_ITEMS[i].key, uint8_value));
-                        break;
-                    case TYPE_CFG_ITEM_UINT16:
-                        uint16_t uint16_value = atoi(value); //this may be an error if the types do not match
-                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u16(h_config, CONFIG_ITEMS[i].key, uint16_value));
-                        break;
-                    case TYPE_CFG_ITEM_UINT32:
-                        uint32_t uint32_value = atol(value); //this may be an error if the types do not match
-                        ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_set_u32(h_config, CONFIG_ITEMS[i].key, uint32_value));
-                        break;
+        if (item == NULL) {
+            continue;
+        }
+
+        switch (CONFIG_ITEMS[i].type) {
+            case TYPE_CFG_ITEM_STR: {
+                if (!cJSON_IsString(item)) {
+                    ESP_LOGE(TAG, "Invalid string value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
                 }
+
+                const char *value = cJSON_GetStringValue(item);
+                if (value == NULL) {
+                    ESP_LOGE(TAG, "Null string value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
+                }
+
+                res = nvs_set_str(h_config, CONFIG_ITEMS[i].key, value);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "nvs_set_str(%s) failed: %s",
+                             CONFIG_ITEMS[i].key, esp_err_to_name(res));
+                    had_error = true;
+                }
+                continue;
+            }
+
+            case TYPE_CFG_ITEM_SECRET_STR: {
+                if (!cJSON_IsString(item)) {
+                    ESP_LOGE(TAG, "Invalid secret string value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
+                }
+
+                const char *value = cJSON_GetStringValue(item);
+                if (value == NULL) {
+                    ESP_LOGE(TAG, "Null secret string value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
+                }
+
+                if (strcmp(value, CFG_VALUE_UNCHANGED) == 0) {
+                    continue;
+                }
+
+                res = nvs_set_str(h_config, CONFIG_ITEMS[i].key, value);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "nvs_set_str(%s) failed: %s",
+                             CONFIG_ITEMS[i].key, esp_err_to_name(res));
+                    had_error = true;
+                }
+                continue;
+            }
+
+            case TYPE_CFG_ITEM_BOOL: {
+                uint8_t value = 0;
+                if (!json_get_bool_compat(item, &value)) {
+                    ESP_LOGE(TAG, "Invalid bool value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
+                }
+
+                res = nvs_set_u8(h_config, CONFIG_ITEMS[i].key, value);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "nvs_set_u8(%s) failed: %s",
+                             CONFIG_ITEMS[i].key, esp_err_to_name(res));
+                    had_error = true;
+                }
+                continue;
+            }
+
+            case TYPE_CFG_ITEM_UINT8: {
+                uint32_t value = 0;
+                if (!json_get_u32_compat(item, UINT8_MAX, &value)) {
+                    ESP_LOGE(TAG, "Invalid uint8 value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
+                }
+
+                res = nvs_set_u8(h_config, CONFIG_ITEMS[i].key, (uint8_t)value);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "nvs_set_u8(%s) failed: %s",
+                             CONFIG_ITEMS[i].key, esp_err_to_name(res));
+                    had_error = true;
+                }
+                continue;
+            }
+
+            case TYPE_CFG_ITEM_UINT16: {
+                uint32_t value = 0;
+                if (!json_get_u32_compat(item, UINT16_MAX, &value)) {
+                    ESP_LOGE(TAG, "Invalid uint16 value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
+                }
+
+                res = nvs_set_u16(h_config, CONFIG_ITEMS[i].key, (uint16_t)value);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "nvs_set_u16(%s) failed: %s",
+                             CONFIG_ITEMS[i].key, esp_err_to_name(res));
+                    had_error = true;
+                }
+                continue;
+            }
+
+            case TYPE_CFG_ITEM_UINT32: {
+                uint32_t value = 0;
+                if (!json_get_u32_compat(item, UINT32_MAX, &value)) {
+                    ESP_LOGE(TAG, "Invalid uint32 value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
+                }
+
+                res = nvs_set_u32(h_config, CONFIG_ITEMS[i].key, value);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "nvs_set_u32(%s) failed: %s",
+                             CONFIG_ITEMS[i].key, esp_err_to_name(res));
+                    had_error = true;
+                }
+                continue;
+            }
+
+            case TYPE_CFG_ITEM_IP: {
+                uint32_t value = 0;
+                if (!json_get_ip4_array(item, &value)) {
+                    ESP_LOGE(TAG, "Invalid IPv4 array value for key %s", CONFIG_ITEMS[i].key);
+                    had_error = true;
+                    continue;
+                }
+
+                res = nvs_set_u32(h_config, CONFIG_ITEMS[i].key, value);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "nvs_set_u32(%s) failed: %s",
+                             CONFIG_ITEMS[i].key, esp_err_to_name(res));
+                    had_error = true;
+                }
+                continue;
             }
         }
     }
 
-    nvs_commit(h_config);
+    if (!had_error) {
+        res = nvs_commit(h_config);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "nvs_commit failed: %s", esp_err_to_name(res));
+            had_error = true;
+        }
+    }
+
     nvs_close(h_config);
 
-    return ESP_OK;
+    return had_error ? ESP_ERR_INVALID_ARG : ESP_OK;
 } // cfg_json_to_nvs
 
 

@@ -1,36 +1,37 @@
 /** 
  * @file gnss_uart.c
  * @brief GNSS UART driver implementation
- * This module implements the UART driver for receiving GNSS data, including
- * RTCM3 correction messages and NMEA sentences. It uses the ESP-IDF UART driver in event-driven mode,
- * with a state machine to split the incoming byte stream into complete frames, validate them, and publish them to the appropriate queues for further processing by other tasks.
+ * This module receives GNSS UART data in event-driven mode. Raw UART chunks are
+ * forwarded to the TCP server for UPrecise, while a lightweight splitter
+ * extracts complete RTCM3 frames for the NTRIP uplinks and local caster.
  * The UART configuration is read from NVS at startup, allowing for flexible hardware setups. The driver also handles various UART events such as data reception,
  * The COM2 of the UM980 module is used (irrelevant for this code but importnat for the content of some commands sent). 
 */
 
 #include <driver/uart.h> // IDF 5.x: provided by esp_driver_uart component
-#include <driver/gpio.h>
-#include <esp_event.h>
 #include <esp_err.h>
 #include <esp_log.h>
 #include <string.h>
-#include <stream_stats.h>
-#include <esp_timer.h>
-#include <stdlib.h>             // strtol()
-#include <fcntl.h>
 
 #include "gnss_uart.h"
+#include "frame_pool.h"
+#include "ntrip_caster.h"
+#include "ntrip_client.h"
 #include "nvs_config.h"
 #include "tcp_server.h"
-#include "rtk_base.h"
 
 
 
 static const char *TAG = "GNSS_UART";
 
+#define LOG_RTCM_SPLITTER_ERRORS   1
+#define RTCM_ERROR_LOG_MASK        0x3F
+
 /// ─── CRC-24Q (RTCM3) ─────────────────────────────────────────────────────────
 
 static const uint32_t CRC24Q_POLY = 0x1864CFB;
+static uint32_t rtcm_bad_len_count;
+static uint32_t rtcm_crc_fail_count;
 
 static uint32_t crc24q(const uint8_t *buf, size_t len)
 {
@@ -45,28 +46,29 @@ static uint32_t crc24q(const uint8_t *buf, size_t len)
     return crc & 0xFFFFFF;
 }
 
-// ─── NMEA XOR checksum ────────────────────────────────────────────────────────
-
-static bool nmea_checksum_valid(const uint8_t *buf, size_t len)
+static void log_rtcm_bad_len(uint16_t len)
 {
-    if (len < 7 || buf[0] != '$') return false;
-
-    int star = -1;
-    for (size_t i = 1; i < len - 4; i++) {
-        if (buf[i] == '*') { star = (int)i; break; }
+#if LOG_RTCM_SPLITTER_ERRORS
+    if ((++rtcm_bad_len_count & RTCM_ERROR_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "RTCM bad length=%u count=%lu",
+                 len, (unsigned long)rtcm_bad_len_count);
     }
-    if (star < 0) return false;
-
-    uint8_t computed = 0;
-    for (int i = 1; i < star; i++) computed ^= buf[i];
-
-    char hex[3] = { (char)buf[star+1], (char)buf[star+2], '\0' };
-    uint8_t received = (uint8_t)strtol(hex, NULL, 16);
-
-    return computed == received;
+#else
+    (void)len;
+#endif
 }
 
-// ─── Publish a validated frame to all active queues except the TCP server which transfers raw data ────────────────────────────
+static void log_rtcm_crc_fail(void)
+{
+#if LOG_RTCM_SPLITTER_ERRORS
+    if ((++rtcm_crc_fail_count & RTCM_ERROR_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "RTCM CRC failures=%lu",
+                 (unsigned long)rtcm_crc_fail_count);
+    }
+#endif
+}
+
+// ─── Publish a validated RTCM3 frame to all active NTRIP destinations ───────
 //
 // Acquires ONE pool slot, copies the data in, then enqueues the same pointer
 // to every non-NULL queue.  ref_count is set to exactly the number of queues
@@ -76,49 +78,21 @@ static bool nmea_checksum_valid(const uint8_t *buf, size_t len)
 // This means no code change is needed here when services are enabled/disabled
 // at startup: main.c simply leaves unused queue handles as NULL.
 
-static void publish_frame(msg_type_t type, const uint8_t *data, size_t len)
+static void publish_rtcm_frame(const uint8_t *data, size_t len)
 {
-    // ── Count active destinations ─────────────────────────────────────────────
-    int refs = 0;
-    //if (q_tcp_server)        refs++;          // send raw data NMEA + RTCM3
-    if (type == MSG_RTCM3) {
-        if (q_ntrip_1)       refs++;
-        if (q_ntrip_2)       refs++;
-        if (q_ntrip_server)  refs++;
-    }
+    int refs = ntrip_client_active_count() + ntrip_caster_active_count();
 
     if (refs == 0) return;  // no active consumers; discard silently
 
-    // ── Allocate pool slot ────────────────────────────────────────────────────
     pool_frame_t *f = pool_alloc();
     if (f == NULL) return;   // pool_alloc already logged the error
 
     memcpy(f->data, data, len);
-    f->len  = len;
-    f->type = type;
+    f->len = len;
     pool_set_refs(f, refs);
 
-    // ── Enqueue to each active destination ────────────────────────────────────
-    // If a queue is full we release that reference immediately so the pool
-    // slot is returned correctly when the remaining consumers finish.
-    #define TRY_ENQUEUE(q) do { \
-        if ((q) != NULL) { \
-            if (xQueueSend((q), &f, 0) != pdTRUE) { \
-                ESP_LOGW(TAG, "Queue full (" #q "), dropping frame"); \
-                pool_release(f); \
-            } \
-        } \
-    } while(0)
-
-    ///TRY_ENQUEUE(q_tcp_server);
-
-    if (type == MSG_RTCM3) {
-        TRY_ENQUEUE(q_ntrip_1);
-        TRY_ENQUEUE(q_ntrip_2);
-        TRY_ENQUEUE(q_ntrip_server);
-    }
-
-    #undef TRY_ENQUEUE
+    ntrip_client_publish(f);
+    ntrip_caster_publish(f);
 }
 
 // ─── Frame Splitter State Machine ────────────────────────────────────────────
@@ -127,16 +101,20 @@ typedef enum {
     STATE_HUNT,         // scanning for a frame start byte
     STATE_RTCM_HDR,     // collected 0xD3, reading 2 more header bytes
     STATE_RTCM_BODY,    // reading payload + CRC
-    STATE_NMEA_BODY,    // reading up to \r\n
 } splitter_state_t;
 
 typedef struct {
     splitter_state_t state;
-    uint8_t          buf[MAX_RTCM_FRAME];  // reused for both types; RTCM is larger
+    uint8_t          buf[MAX_RTCM_FRAME];
     size_t           buf_pos;
     uint16_t         rtcm_payload_len;
     size_t           rtcm_total_len;       // 3 hdr + payload + 3 CRC
 } splitter_t;
+
+static uint8_t replay_buf[MAX_RTCM_FRAME];
+
+static int splitter_push_byte(splitter_t *s, uint8_t b);
+static void splitter_process_bytes(splitter_t *s, const uint8_t *data, size_t len);
 
 static void splitter_init(splitter_t *s)
 {
@@ -144,7 +122,7 @@ static void splitter_init(splitter_t *s)
     s->buf_pos = 0;
 }
 
-static void splitter_push_byte(splitter_t *s, uint8_t b)
+static int splitter_push_byte(splitter_t *s, uint8_t b)
 {
 restart:
     switch (s->state) {
@@ -155,13 +133,8 @@ restart:
             s->buf[0]  = b;
             s->buf_pos = 1;
             s->state   = STATE_RTCM_HDR;
-        } else if (b == '$') {
-            s->buf[0]  = b;
-            s->buf_pos = 1;
-            s->state   = STATE_NMEA_BODY;
         }
-        // Any other byte: silently discard, remain in HUNT
-        break;
+        return -1;
 
     // ── RTCM3: two remaining header bytes ─────────────────────────────────────
     case STATE_RTCM_HDR:
@@ -170,22 +143,15 @@ restart:
             uint16_t len = ((uint16_t)(s->buf[1] & 0x03) << 8) | s->buf[2];
 
             if (len == 0 || len > 1023) {
-                ESP_LOGD(TAG, "RTCM implausible length %u — re-hunting from buf[1]", len);
-                // Save both bytes before resetting: either could be a real frame
-                // start (0xD3 or '$') that must not be silently discarded.
-                uint8_t b1 = s->buf[1];
-                uint8_t b2 = s->buf[2];  // same value as the current byte b
-                splitter_init(s);
-                splitter_push_byte(s, b1);
-                splitter_push_byte(s, b2);
-                return;                  // b already replayed; do not fall through
+                log_rtcm_bad_len(len);
+                return 1;
             }
 
             s->rtcm_payload_len = len;
             s->rtcm_total_len   = 3 + len + 3;
             s->state            = STATE_RTCM_BODY;
         }
-        break;
+        return -1;
 
     // ── RTCM3: payload + CRC ──────────────────────────────────────────────────
     case STATE_RTCM_BODY:
@@ -204,34 +170,62 @@ restart:
                               |  (uint32_t)s->buf[s->rtcm_total_len-1];
 
             if (computed == received) {
-                uint16_t msg_type = ((uint16_t)s->buf[3] << 4) | (s->buf[4] >> 4);
-                ESP_LOGD(TAG, "RTCM3 type=%u len=%u OK", msg_type, s->rtcm_total_len);
-                publish_frame(MSG_RTCM3, s->buf, s->rtcm_total_len);
+                publish_rtcm_frame(s->buf, s->rtcm_total_len);
+                splitter_init(s);
             } else {
-                ESP_LOGW(TAG, "RTCM3 CRC FAIL (got 0x%06lX, expected 0x%06lX)",
-                         (unsigned long)received, (unsigned long)computed);
+                (void)received;
+                (void)computed;
+                log_rtcm_crc_fail();
+                return 1;
             }
-            splitter_init(s);
         }
-        break;
+        return -1;
+    }
 
-    // ── NMEA: collect until \r\n ──────────────────────────────────────────────
-    case STATE_NMEA_BODY:
-        if (s->buf_pos >= MAX_NMEA_FRAME - 1) {
-            ESP_LOGW(TAG, "NMEA sentence too long — re-hunting");
-            splitter_init(s);
-            goto restart;
-        }
-        s->buf[s->buf_pos++] = b;
-        if (b == '\n' && s->buf_pos >= 2 && s->buf[s->buf_pos-2] == '\r') {
-            if (nmea_checksum_valid(s->buf, s->buf_pos)) {
-                ESP_LOGD(TAG, "NMEA OK: %.*s", (int)(s->buf_pos - 2), s->buf);
-                publish_frame(MSG_NMEA, s->buf, s->buf_pos);
-            } else {
-                ESP_LOGW(TAG, "NMEA checksum FAIL");
+    return -1;
+}
+
+static void splitter_process_bytes(splitter_t *s, const uint8_t *data, size_t len)
+{
+    const uint8_t *src = data;
+    size_t src_len = len;
+    size_t i = 0;
+    size_t resume_i = 0;
+
+    while (1) {
+        while (i < src_len) {
+            int replay_start = splitter_push_byte(s, src[i++]);
+            if (replay_start < 0) {
+                continue;
             }
+
+            size_t replay_len = s->buf_pos > (size_t)replay_start
+                              ? s->buf_pos - (size_t)replay_start
+                              : 0;
             splitter_init(s);
+
+            if (replay_len == 0) {
+                continue;
+            }
+
+            memcpy(replay_buf, &s->buf[replay_start], replay_len);
+
+            if (src != replay_buf) {
+                resume_i = i;
+            }
+
+            src = replay_buf;
+            src_len = replay_len;
+            i = 0;
         }
+
+        if (src == replay_buf) {
+            src = data;
+            src_len = len;
+            i = resume_i;
+            continue;
+        }
+
         break;
     }
 }
@@ -254,7 +248,7 @@ restart:
 #define UART_EVENT_QUEUE_DEPTH  20
 
 // Configures the task from nvs and starts the reader task
-void task_gnss_reader(void *pvParams)
+static void task_gnss_reader(void *pvParams)
 {
     nvs_handle_t h_config;
     config_item_value_t cfg_var;
@@ -352,16 +346,14 @@ void task_gnss_reader(void *pvParams)
                 int n = uart_read_bytes(uart_port, raw_frame.data, to_read, pdMS_TO_TICKS(10));
                 if (n <= 0) break;
 
-                // send raw data to TCP servers queue
+                // Forward the raw byte stream to the TCP bridge for UPrecise.
                 raw_frame.len = (size_t)n;
                 post_raw_gnss_data_tcp(&raw_frame);
 
-/* to fix it later
-                // Parse data byte-by-byte through the splitter state machine, which will publish complete frames to the queues when ready.
-                for (int i = 0; i < n; i++) {
-                    splitter_push_byte(&splitter, rx_buf[i]);
-                }
- */
+                // Extract only validated RTCM3 frames for the NTRIP uplinks and
+                // local caster. All other UART bytes are ignored here.
+                splitter_process_bytes(&splitter, raw_frame.data, (size_t)n);
+
                 remaining -= (size_t)n;
             }
             break;
@@ -401,94 +393,7 @@ void task_gnss_reader(void *pvParams)
     }
 } // task_gnss_reader
 
-
- /* 
-esp_err_t gnss_uart_init()
+void gnss_uart_init(void)
 {
-    nvs_handle_t h_config;
-    uart_config_t uart_config;
-    config_item_value_t cfg_var;
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_open(CONFIG_PREFERENCES, NVS_READONLY, &h_config));
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_NUM, &cfg_var.uint8));
-    gps_port = cfg_var.uint8;
-
-    // UART configuration structure. The values are populated from NVS later, after reading them from NVS.
-    // Populating the uart_config structure with the configuration values read from NVS.
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u32(h_config, KEY_CONFIG_UART_BAUD_RATE, &cfg_var.uint32));
-    uart_config.baud_rate = cfg_var.uint32;
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_DATA_BITS, &cfg_var.uint8));
-    uart_config.data_bits = cfg_var.uint8;
-    
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_PARITY, &cfg_var.uint8));
-    uart_config.parity = cfg_var.uint8;
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_STOP_BITS, &cfg_var.uint8));
-    uart_config.stop_bits = cfg_var.uint8;
-
-    // The flow control is set by bitwise ORing the RTS and CTS flow control values, which are defined in uart_hw_flowcontrol_t enum. If both are disabled, the flow control will be disabled. If only one of them is enabled, the flow control will be set to the corresponding value. If both are enabled, the flow control will be set to UART_HW_FLOWCTRL_CTS_RTS.
-    uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE; // default value, will be updated later based on the RTS and CTS flow control config values read from NVS.
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_FLOW_CTRL_RTS, &cfg_var.uint8));
-    if (cfg_var.enabled) {
-        uart_config.flow_ctrl = uart_config.flow_ctrl | UART_HW_FLOWCTRL_RTS;
-    };
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_FLOW_CTRL_CTS, &cfg_var.uint8));
-    if (cfg_var.enabled) {
-        uart_config.flow_ctrl = uart_config.flow_ctrl | UART_HW_FLOWCTRL_CTS;
-    };
-
-    
-    // UART pin confguration.
-    int pin_tx, pin_rx, pin_rts, pin_cts;
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_TX_PIN, &cfg_var.uint8));
-    pin_tx = cfg_var.uint8;
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_RX_PIN, &cfg_var.uint8));
-    pin_rx = cfg_var.uint8;
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_RTS_PIN, &cfg_var.uint8));
-    pin_rts = cfg_var.uint8;
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_u8(h_config, KEY_CONFIG_UART_CTS_PIN, &cfg_var.uint8));
-    pin_cts = cfg_var.uint8;
-
-    nvs_close(h_config);
-
-    // A. Setup Event Loop with custom queue size for bursts
-    // The received GSM messages will be posted to this event loop, 
-    // and all the tasks that want to receive the messages will subscribe to this event loop.
-    // This is created before the UART driver is set up, so that we can post events to it from the UART event reader task 
-    // as soon as we start receiving data from the GPS.
-    esp_event_loop_args_t loop_args = {
-        .queue_size = EVENT_QUEUE_SIZE,
-        .task_name = "gps_evt_loop_task",
-        .task_priority = 15,
-        .task_stack_size = 3072,
-        .task_core_id = tskNO_AFFINITY
-    };
-    ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &ntrip_event_loop));
- 
-
-    // Setup UART
-    // uart_config is already populated with the values read from NVS. 
-    // We just need to call the UART driver functions to apply the configuration and set up the UART.
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_driver_install(gps_port, UART_BUFFER_SIZE * 2, UART_BUFFER_SIZE * 2, 20, &uart_queue, 0));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_param_config(gps_port, &uart_config)); 
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_set_pin(gps_port, pin_tx, pin_rx, pin_rts, pin_cts));
-   
-    // D. Enable Pattern Detect for '\n' (ASCII 10)
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_enable_pattern_det_baud_intr(gps_port, '\n', PATTERN_CHR_NUM, 9, 0, 0)); // 9 What are the correct parameters?
-    
-    //Reset the pattern queue length to record at most 20 pattern positions.
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_pattern_queue_reset(gps_port, 20));//
-    
-    //Create a task to handler UART event from ISR
-    //xTaskCreate(uart_event_reader_task, "uart_event_reader", 4096, NULL, 12, NULL);
-    
-    //stream_stats = stream_stats_new("uart");
-
-    return ESP_OK;
-} // uart_init */
+    xTaskCreatePinnedToCore(task_gnss_reader, "gnss_reader", 4096, NULL, 5, NULL, 1);
+}

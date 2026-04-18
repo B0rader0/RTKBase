@@ -11,6 +11,7 @@ typedef struct {
     size_t      len;
 } raw_frame_t;
 
+void tcp_server_init(void);
 void post_raw_gnss_data_tcp(const raw_frame_t *frame);
 bool tcp_server_client_connected(void);
 bool tcp_server_disconnect_client(void);

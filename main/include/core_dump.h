@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <esp_err.h>
+
 void core_dump_check();
 size_t core_dump_available();
 esp_err_t core_dump_read(size_t offset, void *buffer, size_t len);
-

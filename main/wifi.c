@@ -7,20 +7,14 @@
 #include <esp_log.h>
 #include <esp_mac.h>   
 #include <string.h>
-#include <mdns.h>
-#include <math.h>
-#include <driver/gpio.h>
 #include <sys/param.h>
 //#include <tasks.h>
 #include <retry.h>
 #include <freertos/event_groups.h>
 #include <esp_netif_ip_addr.h>
 #include <lwip/lwip_napt.h>
-#include <string.h>
-#include <esp_mac.h>
 #include "wifi.h"
 #include "nvs_config.h"
-#include "gnss_uart.h"
 
 static const char *TAG = "WIFI";
 
@@ -46,6 +40,53 @@ static wifi_sta_list_t ap_sta_list;
 
 static esp_netif_t *esp_netif_ap;
 static esp_netif_t *esp_netif_sta;
+
+typedef struct {
+    bool ap_enabled;
+    bool sta_enabled;
+    bool forced_ap_fallback;
+} wifi_startup_config_t;
+
+static uint8_t cfg_get_u8_or_default(const char *key, uint8_t default_value)
+{
+    uint8_t value = default_value;
+    esp_err_t err = cfg_get_u8(key, &value);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "cfg_get_u8(%s) failed: %s, using default %u",
+                key, esp_err_to_name(err), default_value);
+        value = default_value;
+    }
+    return value;
+}
+
+static uint32_t cfg_get_u32_or_default(const char *key, uint32_t default_value)
+{
+    uint32_t value = default_value;
+    esp_err_t err = cfg_get_u32(key, &value);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "cfg_get_u32(%s) failed: %s, using default 0x%08" PRIx32,
+                key, esp_err_to_name(err), default_value);
+        value = default_value;
+    }
+    return value;
+}
+
+static wifi_startup_config_t wifi_read_startup_config(void)
+{
+    wifi_startup_config_t cfg = {
+        .ap_enabled = cfg_get_u8_or_default(KEY_CONFIG_WIFI_AP_ACTIVE, true),
+        .sta_enabled = cfg_get_u8_or_default(KEY_CONFIG_WIFI_STA_ACTIVE, false),
+        .forced_ap_fallback = false
+    };
+
+    if (!cfg.ap_enabled && !cfg.sta_enabled) {
+        cfg.ap_enabled = true;
+        cfg.forced_ap_fallback = true;
+        ESP_LOGW(TAG, "Both STA and AP are disabled in configuration, forcing AP fallback");
+    }
+
+    return cfg;
+}
 
 static void wifi_sta_reconnect_task(void *ctx) {
     while (true) {
@@ -218,27 +259,30 @@ void wait_for_network() {
 // Blocks until network is up (STA connected / AP ready).
 void net_init() {
     uint8_t bool_var; // Used for reading boolean config values from NVS, which are stored as uint8_t (0 or 1)
+    wifi_startup_config_t startup = wifi_read_startup_config();
 
     ESP_ERROR_CHECK(esp_netif_init());
 
     // Soft AP (access point)
-    cfg_get_u8(KEY_CONFIG_WIFI_AP_ACTIVE, &bool_var);
-    if (bool_var) {
-        ESP_LOGI(TAG, "Starting WiFi in AP mode, bool var is %d", bool_var);
+    if (startup.ap_enabled) {
+        ESP_LOGI(TAG, "Preparing WiFi AP interface%s",
+                startup.forced_ap_fallback ? " (forced fallback)" : "");
         esp_netif_ap = esp_netif_create_default_wifi_ap();
 
         // IP configuration 
         esp_netif_ip_info_t ip_info_ap;
-        cfg_get_u32(KEY_CONFIG_WIFI_AP_GATEWAY, (uint32_t*) &ip_info_ap.ip);
+        ip_info_ap.ip.addr = cfg_get_u32_or_default(
+                KEY_CONFIG_WIFI_AP_GATEWAY,
+                esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 4, 1)));
         ip_info_ap.gw = ip_info_ap.ip;
 
         uint8_t subnet = 24; // Default subnet
-        ESP_ERROR_CHECK(cfg_get_u8(KEY_CONFIG_WIFI_AP_SUBNET, &subnet));
+        subnet = cfg_get_u8_or_default(KEY_CONFIG_WIFI_AP_SUBNET, subnet);
         
         ip_info_ap.netmask.addr = esp_netif_htonl(0xffffffffu << (32u - subnet));
 
         // IP forwarding/NATP
-        cfg_get_u8(KEY_CONFIG_WIFI_STA_AP_FORWARD, &bool_var);
+        bool_var = cfg_get_u8_or_default(KEY_CONFIG_WIFI_STA_AP_FORWARD, false);
         if (bool_var) {
             uint8_t dhcps_offer = true;
             ESP_ERROR_CHECK(esp_netif_dhcps_option(esp_netif_ap, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &dhcps_offer, 1));
@@ -250,29 +294,40 @@ void net_init() {
     }
 
     // STA (station)
-    cfg_get_u8(KEY_CONFIG_WIFI_STA_ACTIVE, &bool_var);
-    if (bool_var) {
+    if (startup.sta_enabled) {
         esp_netif_ip_info_t ip_info_sta;
         
         esp_netif_sta = esp_netif_create_default_wifi_sta();
 
         char *hostname;
-        cfg_get_str(KEY_CONFIG_STATION_HOSTNAME, &hostname);
+        ESP_ERROR_CHECK(cfg_get_str(KEY_CONFIG_STATION_HOSTNAME, &hostname));
         ESP_ERROR_CHECK(esp_netif_set_hostname(esp_netif_sta, hostname));
         free(hostname);
 
         // Static IP configuration
-        cfg_get_u8(KEY_CONFIG_WIFI_STA_STATIC, (uint8_t*) &bool_var);
+        bool_var = cfg_get_u8_or_default(KEY_CONFIG_WIFI_STA_STATIC, false);
         if (bool_var) {
-            cfg_get_u32(KEY_CONFIG_WIFI_STA_IP, (uint32_t*) &ip_info_sta.ip);
-            cfg_get_u32(KEY_CONFIG_WIFI_STA_GATEWAY, (uint32_t*) &ip_info_sta.gw);
+            ip_info_sta.ip.addr = cfg_get_u32_or_default(
+                    KEY_CONFIG_WIFI_STA_IP,
+                    esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 0, 100)));
+            ip_info_sta.gw.addr = cfg_get_u32_or_default(
+                    KEY_CONFIG_WIFI_STA_GATEWAY,
+                    esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 0, 1)));
             uint8_t subnet = 24; // Default subnet
-            ESP_ERROR_CHECK(cfg_get_u8(KEY_CONFIG_WIFI_STA_SUBNET, &subnet));
+            subnet = cfg_get_u8_or_default(KEY_CONFIG_WIFI_STA_SUBNET, subnet);
             ip_info_sta.netmask.addr = esp_netif_htonl(0xffffffffu << (32u - subnet));
 
             esp_netif_dns_info_t dns_info_sta_main, dns_info_sta_backup;
-            cfg_get_u32(KEY_CONFIG_WIFI_STA_DNS_A, (uint32_t*) &dns_info_sta_main.ip.u_addr.ip4.addr);
-            cfg_get_u32(KEY_CONFIG_WIFI_STA_DNS_B, (uint32_t*) &dns_info_sta_backup.ip.u_addr.ip4.addr);
+            memset(&dns_info_sta_main, 0, sizeof(dns_info_sta_main));
+            memset(&dns_info_sta_backup, 0, sizeof(dns_info_sta_backup));
+            dns_info_sta_main.ip.type = ESP_IPADDR_TYPE_V4;
+            dns_info_sta_backup.ip.type = ESP_IPADDR_TYPE_V4;
+            dns_info_sta_main.ip.u_addr.ip4.addr = cfg_get_u32_or_default(
+                    KEY_CONFIG_WIFI_STA_DNS_A,
+                    esp_netif_htonl(esp_netif_ip4_makeu32(192, 168, 178, 1)));
+            dns_info_sta_backup.ip.u_addr.ip4.addr = cfg_get_u32_or_default(
+                    KEY_CONFIG_WIFI_STA_DNS_B,
+                    esp_netif_htonl(esp_netif_ip4_makeu32(8, 8, 8, 8)));
 
             ESP_ERROR_CHECK(esp_netif_dhcpc_stop(esp_netif_sta));
             ESP_ERROR_CHECK(esp_netif_set_ip_info(esp_netif_sta, &ip_info_sta));
@@ -284,6 +339,7 @@ void net_init() {
 }
 
 void wifi_init() {
+    wifi_startup_config_t startup = wifi_read_startup_config();
     wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&wifi_init_config));
 
@@ -306,44 +362,38 @@ void wifi_init() {
     // Reconnect delay timer
     delay_handle = retry_init(true, 5, 2000, 60000);
 
-    bool sta_enable;
-    cfg_get_u8(KEY_CONFIG_WIFI_STA_ACTIVE, (uint8_t*) &sta_enable);
-    bool ap_enable;
-    cfg_get_u8(KEY_CONFIG_WIFI_AP_ACTIVE, (uint8_t*) &ap_enable);
-
     // Configure and connect
     wifi_mode_t wifi_mode;
-    if (sta_enable && ap_enable) {
+    if (startup.sta_enabled && startup.ap_enabled) {
         wifi_mode = WIFI_MODE_APSTA;
-    } else if (ap_enable) {
+    } else if (startup.ap_enabled) {
         wifi_mode = WIFI_MODE_AP;
-    } else if (sta_enable) {
+    } else if (startup.sta_enabled) {
         wifi_mode = WIFI_MODE_STA;
-    } else { //The device needs to be in at least one mode to be useful, so we will default to AP mode if both are disabled.
+    } else {
         wifi_mode = WIFI_MODE_AP;
-        ESP_LOGW(TAG, "Both STA and AP modes are disabled in configuration, defaulting to AP mode.");
     }
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(wifi_mode));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
     // SoftAP
-    if (ap_enable) {
+    if (startup.ap_enabled) {
         esp_netif_ip_info_t ip_info_ap;
         esp_netif_get_ip_info(esp_netif_ap, &ip_info_ap);
 
         config_ap.ap.max_connection = 4;
         char *buff = NULL;
         config_ap.ap.ssid_len = 0; // If 0, the SSID is expected to be null-terminated string, and the length will be determined by strlen. This allows for flexibility in how the SSID is stored in the config (e.g. as a fixed-size string with null terminator, or as a separate string with length). If ssid_len is not 0, then the SSID will be read as a byte array of the specified length, which allows for SSIDs that may contain null bytes or are not null-terminated.
-        cfg_get_str(KEY_CONFIG_WIFI_AP_SSID, &buff); //, &ap_ssid_len);
+        ESP_ERROR_CHECK(cfg_get_str(KEY_CONFIG_WIFI_AP_SSID, &buff)); //, &ap_ssid_len);
         strncpy((char *) config_ap.ap.ssid, buff, sizeof(config_ap.ap.ssid));
         free(buff);
        
-        cfg_get_u8(KEY_CONFIG_WIFI_AP_SSID_HIDDEN, &config_ap.ap.ssid_hidden);
+        config_ap.ap.ssid_hidden = cfg_get_u8_or_default(KEY_CONFIG_WIFI_AP_SSID_HIDDEN, false);
         size_t ap_password_len = sizeof(config_ap.ap.password);
         // fixme - a specific type needed cfg_get_str(KEY_CONFIG_WIFI_AP_PASSWORD, &config_ap.ap.password); //, &ap_password_len);
         ap_password_len--; // Remove null terminator from length
-        cfg_get_u8(KEY_CONFIG_WIFI_AP_AUTH_MODE, (uint8_t*) &config_ap.ap.authmode);
+        config_ap.ap.authmode = cfg_get_u8_or_default(KEY_CONFIG_WIFI_AP_AUTH_MODE, WIFI_AUTH_OPEN);
 
         ESP_LOGI(TAG, "WIFI_AP_SSID: %s %s(%s)", config_ap.ap.ssid,
                 config_ap.ap.ssid_hidden ? "(hidden) " : "",
@@ -360,7 +410,7 @@ void wifi_init() {
     }
 
     // STA
-    if (sta_enable) {
+    if (startup.sta_enabled) {
         // Read SSID from config, it is assumed to be set. 
         char *buff = NULL;
 
@@ -372,7 +422,7 @@ void wifi_init() {
         strncpy((char *) config_sta.sta.password, buff, sizeof(config_sta.sta.password));   
         free(buff);
         
-        cfg_get_u8(KEY_CONFIG_WIFI_STA_SCAN_MODE_ALL, (uint8_t*) &config_sta.sta.scan_method);
+        config_sta.sta.scan_method = cfg_get_u8_or_default(KEY_CONFIG_WIFI_STA_SCAN_MODE_ALL, WIFI_FAST_SCAN);
         
         ESP_LOGI(TAG, "WIFI_STA_CONNECTING: %s (%s), %s scan", config_sta.sta.ssid,
                 strlen((char *) config_sta.sta.password) == 0 ? "open" : "with password",
