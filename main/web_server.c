@@ -38,6 +38,8 @@
 #include <esp_timer.h>
 #include <freertos/task.h>
 #include "web_server.h"
+#include "ntrip_client.h"
+#include "ntrip_caster.h"
 #include "tcp_server.h"
 
 #include "esp_wifi.h"
@@ -588,6 +590,44 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     cJSON *tcp_server = cJSON_AddObjectToObject(root, "tcp_server");
     cJSON_AddBoolToObject(tcp_server, "connected", tcp_server_client_connected());
     cJSON_AddStringToObject(tcp_server, "endpoint", tcp_server_client_endpoint());
+    tcp_server_diag_t tcp_diag = {0};
+    tcp_server_get_diagnostics(&tcp_diag);
+    cJSON *tcp_diag_json = cJSON_AddObjectToObject(tcp_server, "diag");
+    cJSON_AddNumberToObject(tcp_diag_json, "dropped_frames", tcp_diag.dropped_frames);
+    cJSON_AddNumberToObject(tcp_diag_json, "dropped_bytes", tcp_diag.dropped_bytes);
+    cJSON_AddNumberToObject(tcp_diag_json, "send_block_events", tcp_diag.send_block_events);
+    cJSON_AddNumberToObject(tcp_diag_json, "send_deferred_events", tcp_diag.send_deferred_events);
+    cJSON_AddNumberToObject(tcp_diag_json, "send_fatal_errors", tcp_diag.send_fatal_errors);
+    cJSON_AddNumberToObject(tcp_diag_json, "pending_bytes", tcp_diag.pending_bytes);
+    cJSON_AddNumberToObject(tcp_diag_json, "queue_fill", tcp_diag.queue_fill);
+    cJSON_AddNumberToObject(tcp_diag_json, "queue_depth", tcp_diag.queue_depth);
+
+    ntrip_client_diag_t ntrip_client_diag = {0};
+    ntrip_client_get_diagnostics(&ntrip_client_diag);
+    cJSON *ntrip_clients = cJSON_AddObjectToObject(root, "ntrip_clients");
+    for (int i = 0; i < 2; i++) {
+        char name[8];
+        snprintf(name, sizeof(name), "uplink%d", i + 1);
+        cJSON *uplink = cJSON_AddObjectToObject(ntrip_clients, name);
+        cJSON_AddBoolToObject(uplink, "connected", (ntrip_client_diag.connected_mask & (1u << i)) != 0);
+        cJSON_AddNumberToObject(uplink, "queue_drops", ntrip_client_diag.queue_drops[i]);
+        cJSON_AddNumberToObject(uplink, "queue_fill", ntrip_client_diag.queue_fill[i]);
+        cJSON_AddNumberToObject(uplink, "queue_depth", ntrip_client_diag.queue_depth);
+        cJSON_AddNumberToObject(uplink, "send_block_events", ntrip_client_diag.send_block_events[i]);
+        cJSON_AddNumberToObject(uplink, "send_fatal_errors", ntrip_client_diag.send_fatal_errors[i]);
+        cJSON_AddNumberToObject(uplink, "reconnect_events", ntrip_client_diag.reconnect_events[i]);
+    }
+
+    ntrip_caster_diag_t ntrip_caster_diag = {0};
+    ntrip_caster_get_diagnostics(&ntrip_caster_diag);
+    cJSON *ntrip_caster = cJSON_AddObjectToObject(root, "ntrip_caster");
+    cJSON_AddNumberToObject(ntrip_caster, "queue_drops", ntrip_caster_diag.queue_drops);
+    cJSON_AddNumberToObject(ntrip_caster, "queue_fill", ntrip_caster_diag.queue_fill);
+    cJSON_AddNumberToObject(ntrip_caster, "queue_depth", ntrip_caster_diag.queue_depth);
+    cJSON_AddNumberToObject(ntrip_caster, "rover_slow_drops", ntrip_caster_diag.rover_slow_drops);
+    cJSON_AddNumberToObject(ntrip_caster, "rover_block_events", ntrip_caster_diag.rover_block_events);
+    cJSON_AddNumberToObject(ntrip_caster, "rover_send_errors", ntrip_caster_diag.rover_send_errors);
+    cJSON_AddNumberToObject(ntrip_caster, "active_rovers", ntrip_caster_diag.active_rovers);
 
     // Sockets
     cJSON *sockets = cJSON_AddArrayToObject(root, "sockets");

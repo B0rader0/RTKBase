@@ -301,7 +301,13 @@
             var wifiApStatusText = form.find('.wifi-ap-status');
             var wifiStaStatusText = form.find('.wifi-sta-status');
             var tcpServerStatusText = form.find('.tcp-server-status');
+            var tcpServerDiagText = form.find('.tcp-server-diag');
             var tcpServerDisconnectButton = form.find('.tcp-server-disconnect');
+            var ntripUplinkDiagTexts = {
+                uplink1: form.find('.ntrip-uplink1-diag'),
+                uplink2: form.find('.ntrip-uplink2-diag')
+            };
+            var ntripCasterDiagText = form.find('.ntrip-caster-diag');
 
             var streamStatsTexts = form.find('.stream-stats');
 
@@ -369,6 +375,55 @@
                     } else {
                         tcpServerStatusText.text("No client connected");
                         tcpServerDisconnectButton.prop('disabled', true);
+                    }
+
+                    if (data.tcp_server && data.tcp_server.diag) {
+                        var diag = data.tcp_server.diag;
+                        tcpServerDiagText.text(
+                            "Drops: " + (diag.dropped_frames || 0) +
+                            " / Blocked: " + (diag.send_block_events || 0) +
+                            " / Deferred: " + (diag.send_deferred_events || 0) +
+                            " / Fatal: " + (diag.send_fatal_errors || 0) +
+                            " / Pending: " + (diag.pending_bytes || 0) + "B" +
+                            " / Queue: " + (diag.queue_fill || 0) + "/" + (diag.queue_depth || 0)
+                        );
+                    } else {
+                        tcpServerDiagText.text("");
+                    }
+
+                    if (data.ntrip_clients) {
+                        ['uplink1', 'uplink2'].forEach(function(name) {
+                            var diag = data.ntrip_clients[name];
+                            if (!diag) {
+                                ntripUplinkDiagTexts[name].text("");
+                                return;
+                            }
+                            ntripUplinkDiagTexts[name].text(
+                                (diag.connected ? "Connected" : "Disconnected") +
+                                " / Drops: " + (diag.queue_drops || 0) +
+                                " / Blocked: " + (diag.send_block_events || 0) +
+                                " / Fatal: " + (diag.send_fatal_errors || 0) +
+                                " / Reconnects: " + (diag.reconnect_events || 0) +
+                                " / Queue: " + (diag.queue_fill || 0) + "/" + (diag.queue_depth || 0)
+                            );
+                        });
+                    } else {
+                        ntripUplinkDiagTexts.uplink1.text("");
+                        ntripUplinkDiagTexts.uplink2.text("");
+                    }
+
+                    if (data.ntrip_caster) {
+                        var casterDiag = data.ntrip_caster;
+                        ntripCasterDiagText.text(
+                            "Rovers: " + (casterDiag.active_rovers || 0) +
+                            " / Queue drops: " + (casterDiag.queue_drops || 0) +
+                            " / Slow-rover drops: " + (casterDiag.rover_slow_drops || 0) +
+                            " / Blocked: " + (casterDiag.rover_block_events || 0) +
+                            " / Errors: " + (casterDiag.rover_send_errors || 0) +
+                            " / Queue: " + (casterDiag.queue_fill || 0) + "/" + (casterDiag.queue_depth || 0)
+                        );
+                    } else {
+                        ntripCasterDiagText.text("");
                     }
 
                     // WiFi
@@ -773,6 +828,11 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="form-row">
+                                <div class="col">
+                                    <small class="ntrip-uplink1-diag text-muted"></small>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="card mb-3">
@@ -815,6 +875,11 @@
                                     <div class="input-group">
                                         <input type="password" name="ntrip2_pass" class="form-control">
                                     </div>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="col">
+                                    <small class="ntrip-uplink2-diag text-muted"></small>
                                 </div>
                             </div>
                         </div>
@@ -1057,6 +1122,11 @@
                                     <button type="button" class="tcp-server-disconnect btn btn-outline-danger" disabled>Disconnect client</button>
                                 </div>
                             </div>
+                            <div class="form-row">
+                                <div class="col">
+                                    <small class="tcp-server-diag text-muted"></small>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="card mb-3">
@@ -1093,6 +1163,11 @@
                                     <div class="input-group">
                                         <input type="password" name="caster_pass" class="form-control">
                                     </div>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="col">
+                                    <small class="ntrip-caster-diag text-muted"></small>
                                 </div>
                             </div>
                         </div>

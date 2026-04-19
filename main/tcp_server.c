@@ -10,7 +10,9 @@
 
 static const char *TAG = "TCP_SERVER";
 
-#define TCP_QUEUE_DEPTH 8
+#define TCP_QUEUE_DEPTH 64
+#define SOCKET_MAX_RETRIES 40
+#define TCP_DIAG_LOG_MASK 0x0F
 
 /**
  * @brief Indicates that the file descriptor represents an invalid (uninitialized or closed) socket
@@ -37,11 +39,48 @@ static const char *TAG = "TCP_SERVER";
 static int client_socket = INVALID_SOCK;
 static volatile bool disconnect_requested = false;
 static char client_endpoint[64] = "";
+static raw_frame_t pending_tx_frame;
+static bool pending_tx_valid = false;
+static size_t pending_tx_offset = 0;
+static tcp_server_diag_t s_diag;
 
 QueueHandle_t q_tcp_server   = NULL; // UART raw data → UPrecise TCP server
     
 static bool accept_should_retry(int err);
 static void task_tcp_server(void *pvParameters);
+
+static void tcp_diag_log_drop(size_t dropped_len)
+{
+    s_diag.dropped_frames++;
+    s_diag.dropped_bytes += (uint32_t)dropped_len;
+    if ((s_diag.dropped_frames & TCP_DIAG_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "TCP raw stream drop: dropped=%uB total_drops=%lu queue=%lu/%u",
+                 (unsigned)dropped_len,
+                 (unsigned long)s_diag.dropped_frames,
+                 (unsigned long)(q_tcp_server ? uxQueueMessagesWaiting(q_tcp_server) : 0),
+                 (unsigned)TCP_QUEUE_DEPTH);
+    }
+}
+
+static void tcp_diag_log_blocked(int sock, size_t remaining)
+{
+    s_diag.send_block_events++;
+    if ((s_diag.send_block_events & TCP_DIAG_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "[sock=%d]: send blocked, remaining=%uB count=%lu",
+                 sock, (unsigned)remaining,
+                 (unsigned long)s_diag.send_block_events);
+    }
+}
+
+static void tcp_diag_log_deferred(int sock, size_t remaining)
+{
+    s_diag.send_deferred_events++;
+    if ((s_diag.send_deferred_events & TCP_DIAG_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "[sock=%d]: send deferred, pending=%uB count=%lu",
+                 sock, (unsigned)remaining,
+                 (unsigned long)s_diag.send_deferred_events);
+    }
+}
 
 static void tcp_server_drain_queue(void)
 {
@@ -52,6 +91,7 @@ static void tcp_server_drain_queue(void)
     }
 
     while (xQueueReceive(q_tcp_server, &dropped_frame, 0) == pdTRUE) {
+        tcp_diag_log_drop(dropped_frame.len);
     }
 }
 
@@ -63,6 +103,18 @@ bool tcp_server_client_connected(void)
 const char *tcp_server_client_endpoint(void)
 {
     return client_endpoint;
+}
+
+void tcp_server_get_diagnostics(tcp_server_diag_t *diag)
+{
+    if (diag == NULL) {
+        return;
+    }
+
+    *diag = s_diag;
+    diag->pending_bytes = pending_tx_valid ? (uint32_t)(pending_tx_frame.len - pending_tx_offset) : 0;
+    diag->queue_fill = q_tcp_server ? (uint32_t)uxQueueMessagesWaiting(q_tcp_server) : 0;
+    diag->queue_depth = TCP_QUEUE_DEPTH;
 }
 
 bool tcp_server_disconnect_client(void)
@@ -122,7 +174,7 @@ void post_raw_gnss_data_tcp(const raw_frame_t *frame)
             ESP_LOGW(TAG, "TCP server queue full, unable to drop stale data for %u-byte frame", (unsigned)frame->len);
             return;
         }
-        ESP_LOGW(TAG, "TCP server queue full, dropped stale %u-byte frame", (unsigned)dropped_frame.len);
+        tcp_diag_log_drop(dropped_frame.len);
     }
 
 } // post_raw_gnss_data_tcp
@@ -170,44 +222,47 @@ static int try_receive(const int sock, char * data, size_t max_len)
  * @param[in] data Data to be written
  * @param[in] len Length of the data
  * @return
- *          >0 : Size of the written data
- *          -1 : Error occurred during socket write operation or the client
- *               did not become writable within the retry limit
+ *          1  : Full buffer sent
+ *          0  : Socket temporarily blocked; retry later without disconnecting
+ *          -1 : Fatal socket error
  */
-static int socket_send(const int sock, const uint8_t *data, const size_t len)
+static int socket_send(const int sock, const uint8_t *data, const size_t len, size_t *offset)
 {
-    size_t offset = 0;
     int retries = 0;
-    const int max_retries = 10;
 
-    while (offset < len) {
-        int written = send(sock, data + offset, len - offset, 0);
+    while (*offset < len) {
+        int written = send(sock, data + *offset, len - *offset, 0);
 
         if (written > 0) {
-            offset += written;
+            *offset += (size_t)written;
             retries = 0;
             continue;
         }
 
         if (written == 0) {
             ESP_LOGW(TAG, "[sock=%d]: send() returned 0", sock);
+            s_diag.send_fatal_errors++;
             return -1;
         }
 
         if (errno == EINPROGRESS || errno == EAGAIN || errno == EWOULDBLOCK) {
-            if (++retries > max_retries) {
-                ESP_LOGW(TAG, "[sock=%d]: send retry limit reached", sock);
-                return -1;
+            if (retries == 0) {
+                tcp_diag_log_blocked(sock, len - *offset);
+            }
+            if (++retries > SOCKET_MAX_RETRIES) {
+                tcp_diag_log_deferred(sock, len - *offset);
+                return 0;
             }
             vTaskDelay(DELAY_TICKS_MS(SOCKET_RETRY_MS));
             continue;
         }
 
         log_socket_error(sock, errno, "Error occurred during sending");
+        s_diag.send_fatal_errors++;
         return -1;
     }
 
-    return (int)offset;
+    return 1;
 } //socket_send
 
 /**
@@ -285,6 +340,10 @@ static void task_tcp_server(void *pvParameters)
     client_socket = INVALID_SOCK;
     disconnect_requested = false;
     client_endpoint[0] = '\0';
+    pending_tx_valid = false;
+    pending_tx_offset = 0;
+    memset(&pending_tx_frame, 0, sizeof(pending_tx_frame));
+    memset(&s_diag, 0, sizeof(s_diag));
 
     // Creating a listener socket
     listening_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -358,6 +417,8 @@ static void task_tcp_server(void *pvParameters)
             client_socket = INVALID_SOCK;
             disconnect_requested = false;
             tcp_server_drain_queue();
+            pending_tx_valid = false;
+            pending_tx_offset = 0;
             shutdown(sock, SHUT_RDWR);
             close(sock);
             client_endpoint[0] = '\0';
@@ -403,6 +464,8 @@ static void task_tcp_server(void *pvParameters)
                     log_socket_error(client_socket, errno, "Unable to set TCP_NODELAY");
                     close(client_socket);
                     client_socket = INVALID_SOCK;
+                    pending_tx_valid = false;
+                    pending_tx_offset = 0;
                     continue;
                 }
 
@@ -412,6 +475,8 @@ static void task_tcp_server(void *pvParameters)
                     log_socket_error(client_socket, errno, "Unable to get socket flags");
                     close(client_socket);
                     client_socket = INVALID_SOCK;
+                    pending_tx_valid = false;
+                    pending_tx_offset = 0;
                     continue;
                 }
                 if (fcntl(client_socket, F_SETFL, flags | O_NONBLOCK) == -1) {
@@ -429,6 +494,8 @@ static void task_tcp_server(void *pvParameters)
                 close(client_socket);
                 client_socket = INVALID_SOCK;
                 client_endpoint[0] = '\0';
+                pending_tx_valid = false;
+                pending_tx_offset = 0;
                 did_work = true;
             } else if (len > 0) {
                 // Prioritize command/response latency over stale background GNSS
@@ -443,18 +510,49 @@ static void task_tcp_server(void *pvParameters)
 
         // ── Drain queue and send to the connected client ──────────────────────
         static raw_frame_t rf;
-        while (xQueueReceive(q_tcp_server, &rf, 0) == pdTRUE) {
+        if (client_socket != INVALID_SOCK && pending_tx_valid) {
+            did_work = true;
+            int send_result = socket_send(client_socket,
+                                          pending_tx_frame.data,
+                                          pending_tx_frame.len,
+                                          &pending_tx_offset);
+            if (send_result < 0) {
+                ESP_LOGW(TAG, "Client send error, closing socket");
+                close(client_socket);
+                client_socket = INVALID_SOCK;
+                client_endpoint[0] = '\0';
+                pending_tx_valid = false;
+                pending_tx_offset = 0;
+            } else if (send_result > 0) {
+                pending_tx_valid = false;
+                pending_tx_offset = 0;
+            }
+        }
+
+        while (!pending_tx_valid && xQueueReceive(q_tcp_server, &rf, 0) == pdTRUE) {
             did_work = true;
             if (client_socket == INVALID_SOCK) {
                 continue;
             }
 
-            int sent = socket_send(client_socket, rf.data, rf.len);
-            if (sent < 0) {
+            pending_tx_frame = rf;
+            pending_tx_offset = 0;
+            pending_tx_valid = true;
+
+            int send_result = socket_send(client_socket,
+                                          pending_tx_frame.data,
+                                          pending_tx_frame.len,
+                                          &pending_tx_offset);
+            if (send_result < 0) {
                 ESP_LOGW(TAG, "Client send error, closing socket");
                 close(client_socket);
                 client_socket = INVALID_SOCK;
                 client_endpoint[0] = '\0';
+                pending_tx_valid = false;
+                pending_tx_offset = 0;
+            } else if (send_result > 0) {
+                pending_tx_valid = false;
+                pending_tx_offset = 0;
             }
         }
 
@@ -477,6 +575,8 @@ error:
         client_socket = INVALID_SOCK;
     }
     client_endpoint[0] = '\0';
+    pending_tx_valid = false;
+    pending_tx_offset = 0;
 
     vTaskDelete(NULL);
 }

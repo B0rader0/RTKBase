@@ -21,6 +21,11 @@ static const char *TAG = "NTRIP_CASTER";
 #define ROVER_REQ_BUF_SIZE      512
 #define HANDSHAKE_SEND_RETRY_MS 5
 #define HANDSHAKE_SEND_RETRIES  20
+#define TERMINAL_CLOSE_DRAIN_RETRIES 4
+#define TERMINAL_CLOSE_DRAIN_MS 5
+#define ROVER_STREAM_SEND_RETRY_MS 2
+#define ROVER_STREAM_SEND_RETRIES 5
+#define NTRIP_CASTER_DIAG_LOG_MASK 0x0F
 #define NTRIP_CASTER_TASK_STACK_SIZE 5120
 #define NTRIP_CASTER_TASK_PRIORITY   4
 #define NTRIP_CASTER_TASK_CORE       0
@@ -44,6 +49,7 @@ typedef struct {
 static rover_conn_t  s_rovers[MAX_ROVERS];
 static SemaphoreHandle_t s_rovers_mutex;
 static QueueHandle_t s_q_ntrip_caster;
+static ntrip_caster_diag_t s_diag;
 
 typedef struct {
     bool     loaded;
@@ -55,6 +61,7 @@ typedef struct {
 } caster_config_t;
 
 static caster_config_t s_cfg;
+static void close_rover(rover_conn_t *rover, int index);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -141,6 +148,110 @@ static bool send_all_nonblocking(int fd, const char *data, size_t len)
     return true;
 }
 
+static void drain_and_shutdown_write(int fd)
+{
+    if (fd < 0) {
+        return;
+    }
+
+    shutdown(fd, SHUT_WR);
+
+    for (int i = 0; i < TERMINAL_CLOSE_DRAIN_RETRIES; i++) {
+        uint8_t tmp[64];
+        int n = recv(fd, tmp, sizeof(tmp), MSG_DONTWAIT);
+        if (n == 0) {
+            break;
+        }
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                vTaskDelay(pdMS_TO_TICKS(TERMINAL_CLOSE_DRAIN_MS));
+                continue;
+            }
+            break;
+        }
+    }
+}
+
+static bool respond_and_half_close(int fd, const char *data, size_t len)
+{
+    bool ok = send_all_nonblocking(fd, data, len);
+    drain_and_shutdown_write(fd);
+    return ok;
+}
+
+static bool respond_pair_and_half_close(int fd,
+                                        const char *data1, size_t len1,
+                                        const char *data2, size_t len2)
+{
+    bool ok = send_all_nonblocking(fd, data1, len1);
+    if (ok) {
+        ok = send_all_nonblocking(fd, data2, len2);
+    }
+    drain_and_shutdown_write(fd);
+    return ok;
+}
+
+static void caster_log_queue_drop(void)
+{
+    s_diag.queue_drops++;
+    if ((s_diag.queue_drops & NTRIP_CASTER_DIAG_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "Caster queue drop count=%lu queue=%lu/%u",
+                 (unsigned long)s_diag.queue_drops,
+                 (unsigned long)(s_q_ntrip_caster ? uxQueueMessagesWaiting(s_q_ntrip_caster) : 0),
+                 (unsigned)FRAME_QUEUE_DEPTH);
+    }
+}
+
+static void caster_log_rover_block(int rover_index, size_t remaining)
+{
+    s_diag.rover_block_events++;
+    if ((s_diag.rover_block_events & NTRIP_CASTER_DIAG_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "Rover %d blocked, remaining=%uB count=%lu",
+                 rover_index, (unsigned)remaining,
+                 (unsigned long)s_diag.rover_block_events);
+    }
+}
+
+static bool send_frame_to_rover(rover_conn_t *rover, int rover_index, const uint8_t *data, size_t len)
+{
+    const uint8_t *ptr = data;
+    size_t remaining = len;
+    int retries = 0;
+
+    while (remaining > 0) {
+        int sent = send(rover->fd, ptr, remaining, MSG_DONTWAIT);
+        if (sent > 0) {
+            ptr += sent;
+            remaining -= (size_t)sent;
+            retries = 0;
+            continue;
+        }
+
+        if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (retries == 0) {
+                caster_log_rover_block(rover_index, remaining);
+            }
+            if (++retries > ROVER_STREAM_SEND_RETRIES) {
+                s_diag.rover_slow_drops++;
+                if ((s_diag.rover_slow_drops & NTRIP_CASTER_DIAG_LOG_MASK) == 1) {
+                    ESP_LOGW(TAG, "Rover %d slow, dropped frame count=%lu",
+                             rover_index, (unsigned long)s_diag.rover_slow_drops);
+                }
+                return false;
+            }
+            vTaskDelay(pdMS_TO_TICKS(ROVER_STREAM_SEND_RETRY_MS));
+            continue;
+        }
+
+        s_diag.rover_send_errors++;
+        ESP_LOGW(TAG, "Rover %d send error, closing", rover_index);
+        close_rover(rover, rover_index);
+        return false;
+    }
+
+    return true;
+}
+
 static bool auth_valid(const char *b64)
 {
     if (!s_cfg.loaded) {
@@ -168,7 +279,7 @@ static bool auth_valid(const char *b64)
 
 // ─── Sourcetable ─────────────────────────────────────────────────────────────
 
-static void send_sourcetable(int fd, bool v2)
+static bool send_sourcetable(int fd, bool v2)
 {
     char str_record[256];
     int str_len = snprintf(str_record, sizeof(str_record),
@@ -192,8 +303,9 @@ static void send_sourcetable(int fd, bool v2)
             "Content-Type: text/plain\r\n"
             "Content-Length: %d\r\n\r\n", str_len);
     }
-    send_all_nonblocking(fd, header, (size_t)hdr_len);
-    send_all_nonblocking(fd, str_record, (size_t)str_len);
+    return respond_pair_and_half_close(fd,
+                                       header, (size_t)hdr_len,
+                                       str_record, (size_t)str_len);
 }
 
 // ─── HTTP request handler ─────────────────────────────────────────────────────
@@ -208,7 +320,7 @@ static bool handle_request(rover_conn_t *rover)
 
     if (strcasecmp(method, "GET") != 0) {
         const char *r = "HTTP/1.1 400 Bad Request\r\n\r\n";
-        send_all_nonblocking(rover->fd, r, strlen(r));
+        respond_and_half_close(rover->fd, r, strlen(r));
         return false;
     }
 
@@ -221,7 +333,7 @@ static bool handle_request(rover_conn_t *rover)
     snprintf(expected, sizeof(expected), "/%s", s_cfg.mountpoint);
     if (strcasecmp(path, expected) != 0) {
         const char *r = "HTTP/1.1 404 Not Found\r\n\r\n";
-        send_all_nonblocking(rover->fd, r, strlen(r));
+        respond_and_half_close(rover->fd, r, strlen(r));
         ESP_LOGW(TAG, "Unknown mountpoint: %s", path);
         return false;
     }
@@ -232,7 +344,7 @@ static bool handle_request(rover_conn_t *rover)
         if (!auth_hdr) {
             const char *r = "HTTP/1.1 401 Unauthorized\r\n"
                             "WWW-Authenticate: Basic realm=\"NTRIP\"\r\n\r\n";
-            send_all_nonblocking(rover->fd, r, strlen(r));
+            respond_and_half_close(rover->fd, r, strlen(r));
             ESP_LOGW(TAG, "Rover provided no credentials");
             return false;
         }
@@ -248,7 +360,7 @@ static bool handle_request(rover_conn_t *rover)
         if (!auth_valid(token)) {
             const char *r = "HTTP/1.1 401 Unauthorized\r\n"
                             "WWW-Authenticate: Basic realm=\"NTRIP\"\r\n\r\n";
-            send_all_nonblocking(rover->fd, r, strlen(r));
+            respond_and_half_close(rover->fd, r, strlen(r));
             ESP_LOGW(TAG, "Rover failed authentication");
             return false;
         }
@@ -290,6 +402,7 @@ static void close_rover(rover_conn_t *rover, int index)
 static void task_ntrip_server(void *arg)
 {
     ESP_LOGI(TAG, "task_ntrip_server entered");
+    memset(&s_diag, 0, sizeof(s_diag));
 
     s_rovers_mutex = xSemaphoreCreateMutex();
     if (s_rovers_mutex == NULL) {
@@ -400,7 +513,7 @@ static void task_ntrip_server(void *arg)
                 }
                 if (!accepted) {
                     const char *busy = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
-                    send_all_nonblocking(new_fd, busy, strlen(busy));
+                    respond_and_half_close(new_fd, busy, strlen(busy));
                     close(new_fd);
                     ESP_LOGW(TAG, "Max rovers reached, connection refused");
                 }
@@ -434,7 +547,7 @@ static void task_ntrip_server(void *arg)
                     // Incoming GGA from rover (for VRS future use) — drain cleanly
                     uint8_t tmp[64];
                     int n = recv(r->fd, tmp, sizeof(tmp), MSG_DONTWAIT);
-                    if (n == 0 || (n < 0 && errno != EAGAIN)) {
+                    if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
                         close_rover(r, i);
                     }
                 }
@@ -448,24 +561,7 @@ static void task_ntrip_server(void *arg)
             for (int i = 0; i < MAX_ROVERS; i++) {
                 rover_conn_t *r = &s_rovers[i];
                 if (r->state != ROVER_STREAMING) continue;
-
-                const uint8_t *ptr = f->data;
-                size_t remaining   = f->len;
-                while (remaining > 0) {
-                    int sent = send(r->fd, ptr, remaining, MSG_DONTWAIT);
-                    if (sent < 0) {
-                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                            // Rover can't keep up — drop this frame for this rover
-                            ESP_LOGW(TAG, "Rover %d slow, dropping frame", i);
-                            break;
-                        }
-                        ESP_LOGW(TAG, "Rover %d send error, closing", i);
-                        close_rover(r, i);
-                        break;
-                    }
-                    ptr       += sent;
-                    remaining -= sent;
-                }
+                send_frame_to_rover(r, i, f->data, f->len);
             }
             xSemaphoreGive(s_rovers_mutex);
             pool_release(f);    // done with this frame
@@ -527,7 +623,7 @@ void ntrip_caster_publish(pool_frame_t *f)
     }
 
     if (xQueueSend(s_q_ntrip_caster, &f, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "Caster queue full, dropping frame");
+        caster_log_queue_drop();
         pool_release(f);
     }
 }
@@ -543,4 +639,16 @@ int ntrip_caster_rover_count(void)
         xSemaphoreGive(s_rovers_mutex);
     }
     return count;
+}
+
+void ntrip_caster_get_diagnostics(ntrip_caster_diag_t *diag)
+{
+    if (diag == NULL) {
+        return;
+    }
+
+    *diag = s_diag;
+    diag->queue_fill = s_q_ntrip_caster ? (uint32_t)uxQueueMessagesWaiting(s_q_ntrip_caster) : 0;
+    diag->queue_depth = FRAME_QUEUE_DEPTH;
+    diag->active_rovers = (uint32_t)ntrip_caster_rover_count();
 }

@@ -22,6 +22,8 @@ static const char *TAG = "NTRIP_CLIENT";
 #define NTRIP_RECONNECT_MS_MIN    2000
 #define NTRIP_RECONNECT_MS_MAX    60000
 #define NTRIP_SEND_RETRY_MS       10
+#define NTRIP_SEND_RETRY_LIMIT    20
+#define NTRIP_CLIENT_DIAG_LOG_MASK 0x0F
 #define NTRIP_TASK_STACK_SIZE     5120
 #define NTRIP_TASK_PRIORITY       4
 #define NTRIP_TASK_CORE           0
@@ -39,6 +41,49 @@ typedef struct {
 } ntrip_uplink_t;
 
 static ntrip_uplink_t s_uplinks[NTRIP_UPLINK_COUNT];
+static ntrip_client_diag_t s_diag;
+
+static int uplink_index(const ntrip_uplink_t *uplink)
+{
+    return (int)(uplink - s_uplinks);
+}
+
+static void uplink_set_connected(const ntrip_uplink_t *uplink, bool connected)
+{
+    int index = uplink_index(uplink);
+    if (index < 0 || index >= NTRIP_UPLINK_COUNT) {
+        return;
+    }
+    if (connected) {
+        s_diag.connected_mask |= (1u << index);
+    } else {
+        s_diag.connected_mask &= ~(1u << index);
+    }
+}
+
+static void uplink_log_queue_drop(const ntrip_uplink_t *uplink)
+{
+    int index = uplink_index(uplink);
+    s_diag.queue_drops[index]++;
+    if ((s_diag.queue_drops[index] & NTRIP_CLIENT_DIAG_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "[%s] Queue full, dropping frame count=%lu queue=%lu/%u",
+                 uplink->log_name,
+                 (unsigned long)s_diag.queue_drops[index],
+                 (unsigned long)(uplink->queue ? uxQueueMessagesWaiting(uplink->queue) : 0),
+                 (unsigned)FRAME_QUEUE_DEPTH);
+    }
+}
+
+static void uplink_log_blocked(const ntrip_uplink_t *uplink, size_t remaining)
+{
+    int index = uplink_index(uplink);
+    s_diag.send_block_events[index]++;
+    if ((s_diag.send_block_events[index] & NTRIP_CLIENT_DIAG_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "[%s] send blocked, remaining=%uB count=%lu",
+                 uplink->log_name, (unsigned)remaining,
+                 (unsigned long)s_diag.send_block_events[index]);
+    }
+}
 
 static void base64_encode_str(const char *input, char *output, size_t out_size)
 {
@@ -268,12 +313,14 @@ static void task_ntrip_uplink(void *arg)
             ESP_LOGI(TAG, "[%s] Connecting...", uplink->log_name);
             sock = ntrip_connect(uplink);
             if (sock < 0) {
+                s_diag.reconnect_events[uplink_index(uplink)]++;
                 vTaskDelay(pdMS_TO_TICKS(reconnect_delay_ms));
                 reconnect_delay_ms = reconnect_delay_ms * 2 < NTRIP_RECONNECT_MS_MAX
                                    ? reconnect_delay_ms * 2
                                    : NTRIP_RECONNECT_MS_MAX;
                 continue;
             }
+            uplink_set_connected(uplink, true);
             reconnect_delay_ms = NTRIP_RECONNECT_MS_MIN;
         }
 
@@ -281,27 +328,40 @@ static void task_ntrip_uplink(void *arg)
         if (xQueueReceive(uplink->queue, &f, pdMS_TO_TICKS(100)) == pdTRUE) {
             const uint8_t *ptr = f->data;
             size_t remaining = f->len;
+            int retries = 0;
 
             while (remaining > 0) {
                 int sent = send(sock, ptr, remaining, 0);
                 if (sent > 0) {
                     ptr += sent;
                     remaining -= (size_t)sent;
+                    retries = 0;
                     continue;
                 }
 
                 if (sent == 0) {
                     ESP_LOGW(TAG, "[%s] send() returned 0, reconnecting", uplink->log_name);
+                    s_diag.send_fatal_errors[uplink_index(uplink)]++;
                 } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    if (retries == 0) {
+                        uplink_log_blocked(uplink, remaining);
+                    }
+                    if (++retries > NTRIP_SEND_RETRY_LIMIT) {
+                        ESP_LOGW(TAG, "[%s] send retry limit reached, reconnecting", uplink->log_name);
+                        s_diag.send_fatal_errors[uplink_index(uplink)]++;
+                        break;
+                    }
                     vTaskDelay(pdMS_TO_TICKS(NTRIP_SEND_RETRY_MS));
                     continue;
                 } else {
                     ESP_LOGW(TAG, "[%s] send() error %d, reconnecting",
                              uplink->log_name, errno);
+                    s_diag.send_fatal_errors[uplink_index(uplink)]++;
                 }
 
                 close(sock);
                 sock = -1;
+                uplink_set_connected(uplink, false);
                 break;
             }
 
@@ -315,11 +375,13 @@ static void task_ntrip_uplink(void *arg)
                 ESP_LOGW(TAG, "[%s] Caster closed connection", uplink->log_name);
                 close(sock);
                 sock = -1;
+                uplink_set_connected(uplink, false);
             } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
                 ESP_LOGW(TAG, "[%s] recv() error %d, reconnecting",
                          uplink->log_name, errno);
                 close(sock);
                 sock = -1;
+                uplink_set_connected(uplink, false);
             }
         }
     }
@@ -357,6 +419,7 @@ static void ntrip_uplink_start(ntrip_uplink_t *uplink,
 void ntrip_client_init(void)
 {
     uint8_t enabled = 0;
+    memset(&s_diag, 0, sizeof(s_diag));
 
     cfg_get_u8(KEY_CONFIG_NTRIP1_ACTIVE, &enabled);
     if (enabled) {
@@ -394,8 +457,21 @@ void ntrip_client_publish(pool_frame_t *f)
         }
 
         if (xQueueSend(s_uplinks[i].queue, &f, 0) != pdTRUE) {
-            ESP_LOGW(TAG, "[%s] Queue full, dropping frame", s_uplinks[i].log_name);
+            uplink_log_queue_drop(&s_uplinks[i]);
             pool_release(f);
         }
+    }
+}
+
+void ntrip_client_get_diagnostics(ntrip_client_diag_t *diag)
+{
+    if (diag == NULL) {
+        return;
+    }
+
+    *diag = s_diag;
+    diag->queue_depth = FRAME_QUEUE_DEPTH;
+    for (int i = 0; i < NTRIP_UPLINK_COUNT; i++) {
+        diag->queue_fill[i] = s_uplinks[i].queue ? (uint32_t)uxQueueMessagesWaiting(s_uplinks[i].queue) : 0;
     }
 }
