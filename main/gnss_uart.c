@@ -11,6 +11,7 @@
 #include <driver/uart.h> // IDF 5.x: provided by esp_driver_uart component
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <string.h>
 
 #include "gnss_uart.h"
@@ -32,6 +33,8 @@ static const char *TAG = "GNSS_UART";
 static const uint32_t CRC24Q_POLY = 0x1864CFB;
 static uint32_t rtcm_bad_len_count;
 static uint32_t rtcm_crc_fail_count;
+static uint32_t rtcm_frame_count;
+static uint32_t last_rtcm_ms;
 
 static uint32_t crc24q(const uint8_t *buf, size_t len)
 {
@@ -80,6 +83,9 @@ static void log_rtcm_crc_fail(void)
 
 static void publish_rtcm_frame(const uint8_t *data, size_t len)
 {
+    rtcm_frame_count++;
+    last_rtcm_ms = (uint32_t)(esp_timer_get_time() / 1000);
+
     int refs = ntrip_client_active_count() + ntrip_caster_active_count();
 
     if (refs == 0) return;  // no active consumers; discard silently
@@ -396,4 +402,16 @@ static void task_gnss_reader(void *pvParams)
 void gnss_uart_init(void)
 {
     xTaskCreatePinnedToCore(task_gnss_reader, "gnss_reader", 4096, NULL, 5, NULL, 1);
+}
+
+void gnss_uart_get_diagnostics(gnss_uart_diag_t *diag)
+{
+    if (diag == NULL) {
+        return;
+    }
+
+    diag->rtcm_frames = rtcm_frame_count;
+    diag->last_rtcm_ms = last_rtcm_ms;
+    diag->rtcm_bad_len_count = rtcm_bad_len_count;
+    diag->rtcm_crc_fail_count = rtcm_crc_fail_count;
 }

@@ -36,8 +36,10 @@
 #include <esp32/rom/crc.h>
 #include <lwip/sockets.h>
 #include <esp_timer.h>
+#include <esp_heap_caps.h>
 #include <freertos/task.h>
 #include "web_server.h"
+#include "gnss_uart.h"
 #include "ntrip_client.h"
 #include "ntrip_caster.h"
 #include "tcp_server.h"
@@ -70,6 +72,35 @@ enum auth_method {
 static char *basic_authentication;
 static enum auth_method auth_method;
 static bool restart_scheduled;
+
+static const char *reset_reason_name(esp_reset_reason_t reason)
+{
+    switch (reason) {
+        default:
+        case ESP_RST_UNKNOWN:
+            return "UNKNOWN";
+        case ESP_RST_POWERON:
+            return "POWERON";
+        case ESP_RST_EXT:
+            return "EXTERNAL";
+        case ESP_RST_SW:
+            return "SOFTWARE";
+        case ESP_RST_PANIC:
+            return "PANIC";
+        case ESP_RST_INT_WDT:
+            return "INTERRUPT_WATCHDOG";
+        case ESP_RST_TASK_WDT:
+            return "TASK_WATCHDOG";
+        case ESP_RST_WDT:
+            return "OTHER_WATCHDOG";
+        case ESP_RST_DEEPSLEEP:
+            return "DEEPSLEEP";
+        case ESP_RST_BROWNOUT:
+            return "BROWNOUT";
+        case ESP_RST_SDIO:
+            return "SDIO";
+    }
+}
 
 #define IS_FILE_EXT(filename, ext) \
     (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
@@ -564,13 +595,18 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
 
     cJSON *root = cJSON_CreateObject();
 
-    // Uptime
-    cJSON_AddNumberToObject(root, "uptime", (int) ((double) esp_timer_get_time() / 1000000));
+    // Uptime / reset
+    uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    cJSON_AddNumberToObject(root, "uptime", (int)(uptime_ms / 1000));
+    cJSON_AddNumberToObject(root, "uptime_ms", uptime_ms);
+    cJSON_AddStringToObject(root, "reset_reason", reset_reason_name(esp_reset_reason()));
 
     // Heap
     cJSON *heap = cJSON_AddObjectToObject(root, "heap");
     cJSON_AddNumberToObject(heap, "total", heap_caps_get_total_size(MALLOC_CAP_8BIT));
     cJSON_AddNumberToObject(heap, "free", heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    cJSON_AddNumberToObject(heap, "min_free", heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+    cJSON_AddNumberToObject(heap, "largest_free_block", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 
     // Streams
     cJSON *streams = cJSON_AddObjectToObject(root, "streams");
@@ -628,6 +664,22 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(ntrip_caster, "rover_block_events", ntrip_caster_diag.rover_block_events);
     cJSON_AddNumberToObject(ntrip_caster, "rover_send_errors", ntrip_caster_diag.rover_send_errors);
     cJSON_AddNumberToObject(ntrip_caster, "active_rovers", ntrip_caster_diag.active_rovers);
+
+    gnss_uart_diag_t gnss_diag = {0};
+    gnss_uart_get_diagnostics(&gnss_diag);
+    cJSON *gnss = cJSON_AddObjectToObject(root, "gnss");
+    cJSON_AddNumberToObject(gnss, "rtcm_frames", gnss_diag.rtcm_frames);
+    cJSON_AddNumberToObject(gnss, "last_rtcm_ms", gnss_diag.last_rtcm_ms);
+    cJSON_AddNumberToObject(gnss, "last_rtcm_age_ms",
+                             gnss_diag.rtcm_frames > 0 && uptime_ms >= gnss_diag.last_rtcm_ms
+                                 ? uptime_ms - gnss_diag.last_rtcm_ms
+                                 : -1);
+    cJSON_AddNumberToObject(gnss, "rtcm_bad_len_count", gnss_diag.rtcm_bad_len_count);
+    cJSON_AddNumberToObject(gnss, "rtcm_crc_fail_count", gnss_diag.rtcm_crc_fail_count);
+
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    cJSON *firmware = cJSON_AddObjectToObject(root, "firmware");
+    cJSON_AddStringToObject(firmware, "version", app_desc->version);
 
     // Sockets
     cJSON *sockets = cJSON_AddArrayToObject(root, "sockets");

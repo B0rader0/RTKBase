@@ -56,6 +56,7 @@ typedef struct {
     bool     auth_required;
     uint16_t port;
     char     mountpoint[33];
+    char     identifier[33];
     char     username[33];
     char     password[65];
 } caster_config_t;
@@ -92,6 +93,15 @@ static bool load_cfg_string(const char *key, char *dst, size_t dst_size)
     return true;
 }
 
+static void sanitize_sourcetable_field(char *value)
+{
+    for (char *p = value; *p != '\0'; ++p) {
+        if (*p == ';' || *p == '\r' || *p == '\n') {
+            *p = '_';
+        }
+    }
+}
+
 static bool load_caster_config(void)
 {
     memset(&s_cfg, 0, sizeof(s_cfg));
@@ -107,6 +117,15 @@ static bool load_caster_config(void)
                          s_cfg.mountpoint, sizeof(s_cfg.mountpoint))) {
         return false;
     }
+
+    if (!load_cfg_string(KEY_CONFIG_STATION_HOSTNAME,
+                         s_cfg.identifier, sizeof(s_cfg.identifier))) {
+        strlcpy(s_cfg.identifier, "RTK Base", sizeof(s_cfg.identifier));
+    }
+    if (s_cfg.identifier[0] == '\0') {
+        strlcpy(s_cfg.identifier, "RTK Base", sizeof(s_cfg.identifier));
+    }
+    sanitize_sourcetable_field(s_cfg.identifier);
 
     if (!load_cfg_string(KEY_CONFIG_CASTER_USERNAME,
                          s_cfg.username, sizeof(s_cfg.username))) {
@@ -283,11 +302,11 @@ static bool send_sourcetable(int fd, bool v2)
 {
     char str_record[256];
     int str_len = snprintf(str_record, sizeof(str_record),
-        "STR;%s;RTK Base;RTCM 3.2;"
+        "STR;%s;%s;RTCM 3.2;"
         "1005(1),1074(1),1084(1),1094(1),1124(1);"
         "2;GPS+GLO+GAL+BDS;ESP32;DE;48.10;11.60;1;1;sNTRIP;none;N;N;0;\r\n"
         "ENDSOURCETABLE\r\n",
-        s_cfg.mountpoint);
+        s_cfg.mountpoint, s_cfg.identifier);
 
     char header[256];
     int hdr_len;
