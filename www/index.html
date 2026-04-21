@@ -323,10 +323,9 @@
             var otaStatusText = form.find('.ota-status');
             var otaFirmwareLastText = form.find('.ota-firmware-last');
             var otaWwwLastText = form.find('.ota-www-last');
-            var otaControls = otaFirmwareInput
+            var otaBusy = false;
+            var otaNonUploadControls = otaFirmwareInput
                 .add(otaWwwInput)
-                .add(otaFirmwareButton)
-                .add(otaWwwButton)
                 .add(otaRestartButton)
                 .add(form.find(':submit'));
 
@@ -562,8 +561,15 @@
                     .text(text);
             };
 
+            var updateOtaControls = function() {
+                otaNonUploadControls.prop('disabled', otaBusy);
+                otaFirmwareButton.prop('disabled', otaBusy || !otaFirmwareInput[0].files[0]);
+                otaWwwButton.prop('disabled', otaBusy || !otaWwwInput[0].files[0]);
+            };
+
             var setOtaBusy = function(busy) {
-                otaControls.prop('disabled', busy);
+                otaBusy = busy;
+                updateOtaControls();
             };
 
             var uploadOtaFile = function(input, button, url, storageKey, label) {
@@ -599,6 +605,7 @@
             };
 
             updateOtaLastLabels();
+            updateOtaControls();
 
             otaFirmwareInput.on('change', function() {
                 if (this.files[0]) {
@@ -606,6 +613,7 @@
                     $(this).next('.custom-file-label').text(this.files[0].name);
                     updateOtaLastLabels();
                 }
+                updateOtaControls();
             });
 
             otaWwwInput.on('change', function() {
@@ -614,6 +622,7 @@
                     $(this).next('.custom-file-label').text(this.files[0].name);
                     updateOtaLastLabels();
                 }
+                updateOtaControls();
             });
 
             otaFirmwareButton.on('click', function() {
@@ -988,7 +997,7 @@
                                     </div>
                                 </div>
                                 <div class="col-md-5">
-                                    <button type="button" class="ota-firmware-upload btn btn-outline-primary btn-block">Upload firmware</button>
+                                    <button type="button" class="ota-firmware-upload btn btn-outline-primary btn-block" disabled>Upload firmware</button>
                                 </div>
                                 <div class="col-12">
                                     <small class="text-muted">
@@ -1007,7 +1016,7 @@
                                     </div>
                                 </div>
                                 <div class="col-md-5">
-                                    <button type="button" class="ota-www-upload btn btn-outline-primary btn-block">Upload web</button>
+                                    <button type="button" class="ota-www-upload btn btn-outline-primary btn-block" disabled>Upload web</button>
                                 </div>
                                 <div class="col-12">
                                     <small class="text-muted">

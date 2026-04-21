@@ -3,6 +3,7 @@ idf_component_register(
 		"main.c"
 		"nvs_config.c"
 		"core_dump.c"
+		"log.c"
 		"retry.c"
 		"stream_stats.c"
 		"gnss_uart.c"

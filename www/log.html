@@ -1,6 +1,6 @@
 <html>
 <head>
-    <title>ESP32 XBee Log</title>
+    <title>RTK Base Log</title>
     <script src="jquery-3.4.1.min.js"></script>
     <script src="bs-4.3.1.bundle.min.js"></script>
     <link rel="stylesheet" href="bs-4.3.1.min.css">
@@ -22,9 +22,7 @@
             var table = $("#table");
             var tbody = table.find('tbody');
 
-            var regex = /(?<level>[VDIWER]) \((?<time>[\d:.]+)\) (?<tag>[a-zA-Z0-9_-]+): (?<comment>.*)/;
-
-            var index = 1;
+            var regex = /(?<level>[VDIWER]) \((?<time>[\d:.]+)\) (?<tag>[a-zA-Z0-9_-]+): ?(?<comment>.*)/;
 
             var update = function() {
                 // Don't reload if another page is open
@@ -35,17 +33,16 @@
                 }
 
                 $.ajax({
-                    url: 'log',
+                    url: 'log?_=' + Date.now(),
+                    cache: false,
                     timeout: 2000
                 }).done(function(data) {
                     var lines = data.split("\n");
-                    window.lines = lines;
+                    var index = 1;
+                    tbody.empty();
 
                     for (var line of lines) {
-                        if (line === "@@@@") {
-                            index = 1;
-                            line = 'R (00:00:00.000) ESP32: Device Restarted';
-                        } else if (line.length === 0) {
+                        if (line.length === 0) {
                             continue;
                         }
 
@@ -103,8 +100,8 @@
 <body class="bg-light">
     <div class="container-fluid">
         <div class="pt-5 text-center">
-            <h2>ESP32 XBee Log</h2>
-            <p class="lead">The device log will be loaded automatically below. Make sure that you have at most one log page open at a time. </p>
+            <h2>RTK Base Log</h2>
+            <p class="lead">Recent warning and error logs are loaded automatically below. Make sure that you have at most one log page open at a time.</p>
         </div>
         <div class="row">
             <table id="table" class="table table-sm">

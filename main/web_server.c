@@ -23,10 +23,11 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <stdlib.h>
 #include <esp_vfs.h>
 #include <esp_spiffs.h>
 #include <mdns.h>
-//#include <log.h>
+#include <log.h>
 #include <core_dump.h>
 #include <util.h>
 #include <lwip/inet.h>
@@ -60,6 +61,7 @@
 #define WWW_PARTITION_LABEL "www"
 #define BUFFER_SIZE 2048
 #define OTA_UPLOAD_BUF_SIZE 2048
+#define RESTART_TASK_STACK_SIZE 4096
 
 static const char *TAG = "WEB";
 
@@ -296,27 +298,22 @@ static esp_err_t check_auth(httpd_req_t *req) {
 
 // ─── Get log data as plain text ─────────────────────────────────────────────
 // This is used by the web interface to show recent log messages, and can also be used to download the log as a file.
-// TODO
 static esp_err_t log_get_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
     httpd_resp_set_type(req, "text/plain");
-
-    httpd_resp_sendstr(req, ""); // hack to make it compile
-
-    /* size_t length;
-    void *log_data = log_receive(&length, 1);
-    if (log_data == NULL) {
-        httpd_resp_sendstr(req, "");
-
-        return ESP_OK;
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    httpd_resp_set_hdr(req, "Pragma", "no-cache");
+    char *log_buffer = malloc(LOG_SNAPSHOT_BUFFER_SIZE);
+    if (log_buffer == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No log buffer");
+        return ESP_FAIL;
     }
 
-    httpd_resp_send(req, log_data, length);
-
-    log_return(log_data); */
-
-    return ESP_OK;
+    size_t length = log_snapshot(log_buffer, LOG_SNAPSHOT_BUFFER_SIZE);
+    esp_err_t err = httpd_resp_send(req, log_buffer, length);
+    free(log_buffer);
+    return err;
 }
 
 static esp_err_t core_dump_get_handler(httpd_req_t *req) {
@@ -525,7 +522,6 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
 static void delayed_restart_task(void *arg)
 {
     vTaskDelay(pdMS_TO_TICKS(500));
-    ESP_LOGI(TAG, "Restarting firmware after configuration update");
     esp_restart();
 }
 
@@ -569,7 +565,7 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
         BaseType_t task_ok = xTaskCreate(
                 delayed_restart_task,
                 "cfg_restart",
-                2048,
+                RESTART_TASK_STACK_SIZE,
                 NULL,
                 TASK_PRIORITY_INTERFACE,
                 NULL);
@@ -727,7 +723,7 @@ static esp_err_t ota_restart_post_handler(httpd_req_t *req)
         xTaskCreatePinnedToCore(
             delayed_restart_task,
             "ota_restart",
-            2048,
+            RESTART_TASK_STACK_SIZE,
             NULL,
             1,
             NULL,

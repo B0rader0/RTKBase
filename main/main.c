@@ -4,6 +4,7 @@
 
 #include <web_server.h>
 #include <core_dump.h>
+#include <log.h>
 #include <stream_stats.h>
 #include <freertos/FreeRTOS.h>
 #include <esp_ota_ops.h>
@@ -27,14 +28,7 @@ void app_main()
 {
     
     esp_log_level_set(TAG, ESP_LOG_INFO);
-    
-    //log_init();
-        
-    // BUG: (and hence commented out) because it is not yet known what to redirect to the UART and WebSocket 
-    // as clients are not configured yet!
-    // Redirect ESP-IDF logs to our custom log implementation, which forwards them to UART and WebSocket clients
-    // This is a bug, because it is not yet known what to redirect to
-    // esp_log_set_vprintf(log_vprintf);
+    log_init();
     
     esp_log_level_set("gpio", ESP_LOG_WARN);
     esp_log_level_set("system_api", ESP_LOG_WARN);
