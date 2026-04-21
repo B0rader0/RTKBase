@@ -62,6 +62,7 @@
 #define BUFFER_SIZE 2048
 #define OTA_UPLOAD_BUF_SIZE 2048
 #define RESTART_TASK_STACK_SIZE 4096
+#define WEB_SERVER_MAX_OPEN_SOCKETS 3
 
 static const char *TAG = "WEB";
 
@@ -735,6 +736,76 @@ static esp_err_t ota_restart_post_handler(httpd_req_t *req)
     return response_err;
 }
 
+static esp_err_t gnss_command_post_handler(httpd_req_t *req)
+{
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    if (tcp_server_client_connected()) {
+        httpd_resp_set_status(req, "409 Conflict");
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", false);
+        cJSON_AddStringToObject(root, "message", "TCP client connected. Disconnect it before sending GNSS commands from the web UI.");
+        return json_response(req, root);
+    }
+
+    if (req->content_len <= 0 || req->content_len >= BUFFER_SIZE) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid command size");
+        return ESP_FAIL;
+    }
+
+    int remaining = req->content_len;
+    int offset = 0;
+    while (remaining > 0) {
+        int received = httpd_req_recv(req, buffer + offset, remaining);
+        if (received <= 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            return ESP_FAIL;
+        }
+        offset += received;
+        remaining -= received;
+    }
+    buffer[offset] = '\0';
+
+    esp_err_t err = gnss_uart_send_command(buffer, (size_t)offset);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", err == ESP_OK);
+    cJSON_AddStringToObject(root, "message", err == ESP_OK ? "Command sent." : esp_err_to_name(err));
+    return json_response(req, root);
+}
+
+static esp_err_t gnss_log_get_handler(httpd_req_t *req)
+{
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    httpd_resp_set_hdr(req, "Pragma", "no-cache");
+
+    char *log_buffer = malloc(GNSS_CONSOLE_SNAPSHOT_BUFFER_SIZE);
+    if (log_buffer == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No GNSS console buffer");
+        return ESP_FAIL;
+    }
+
+    size_t length = gnss_uart_console_snapshot(log_buffer, GNSS_CONSOLE_SNAPSHOT_BUFFER_SIZE);
+    esp_err_t err = httpd_resp_send(req, log_buffer, length);
+    free(log_buffer);
+    return err;
+}
+
+static esp_err_t gnss_log_clear_post_handler(httpd_req_t *req)
+{
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    gnss_uart_console_clear();
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    return json_response(req, root);
+}
+
 static esp_err_t status_get_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
@@ -945,7 +1016,11 @@ static httpd_handle_t web_server_start(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 6144;
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.max_uri_handlers = 14;
+    config.max_uri_handlers = 18;
+    config.max_open_sockets = WEB_SERVER_MAX_OPEN_SOCKETS;
+    config.lru_purge_enable = true;
+    config.recv_wait_timeout = 2;
+    config.send_wait_timeout = 2;
 
     // Start the httpd server
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
@@ -956,6 +1031,9 @@ static httpd_handle_t web_server_start(void)
         register_uri_handler(server, "/ota/firmware", HTTP_POST, ota_firmware_post_handler);
         register_uri_handler(server, "/ota/www", HTTP_POST, ota_www_post_handler);
         register_uri_handler(server, "/ota/restart", HTTP_POST, ota_restart_post_handler);
+        register_uri_handler(server, "/gnss/command", HTTP_POST, gnss_command_post_handler);
+        register_uri_handler(server, "/gnss/log", HTTP_GET, gnss_log_get_handler);
+        register_uri_handler(server, "/gnss/log/clear", HTTP_POST, gnss_log_clear_post_handler);
         register_uri_handler(server, "/status", HTTP_GET, status_get_handler);
         register_uri_handler(server, "/log", HTTP_GET, log_get_handler);
         register_uri_handler(server, "/core_dump", HTTP_GET, core_dump_get_handler);

@@ -13,6 +13,9 @@
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <string.h>
+#include <strings.h>
+#include <ctype.h>
+#include <freertos/semphr.h>
 
 #include "gnss_uart.h"
 #include "frame_pool.h"
@@ -27,6 +30,19 @@ static const char *TAG = "GNSS_UART";
 
 #define LOG_RTCM_SPLITTER_ERRORS   1
 #define RTCM_ERROR_LOG_MASK        0x3F
+#define GNSS_CONSOLE_BUFFER_SIZE   8192
+#define GNSS_CONSOLE_LINE_SIZE     256
+#define GNSS_COMMAND_MAX_LEN       256
+
+static uart_port_t s_uart_port = UART_NUM_MAX;
+static SemaphoreHandle_t s_uart_tx_mutex;
+static char s_console_buffer[GNSS_CONSOLE_BUFFER_SIZE];
+static size_t s_console_head;
+static size_t s_console_used;
+static char s_console_line[GNSS_CONSOLE_LINE_SIZE];
+static size_t s_console_line_len;
+static bool s_console_line_binary;
+static portMUX_TYPE s_console_mux = portMUX_INITIALIZER_UNLOCKED;
 
 /// ─── CRC-24Q (RTCM3) ─────────────────────────────────────────────────────────
 
@@ -69,6 +85,134 @@ static void log_rtcm_crc_fail(void)
                  (unsigned long)rtcm_crc_fail_count);
     }
 #endif
+}
+
+static bool console_has_checksum_suffix(const char *line)
+{
+    const char *star = strrchr(line, '*');
+    if (star == NULL || star == line) {
+        return false;
+    }
+
+    size_t digits = strlen(star + 1);
+    if (digits != 2 && digits != 8) {
+        return false;
+    }
+
+    for (const char *p = star + 1; *p != '\0'; p++) {
+        if (!isxdigit((unsigned char)*p)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool console_line_interesting(const char *line)
+{
+    while (*line == ' ' || *line == '\t') {
+        line++;
+    }
+
+    if (*line == '\0') {
+        return false;
+    }
+
+    // Binary RTCM can occasionally contain printable fragments followed by
+    // CR/LF-like bytes. Keep receiver text forms, but reject fragments such
+    // as "$", "<p", or "$NHnR".
+    for (const char *p = line; *p != '\0'; p++) {
+        if (!isprint((unsigned char)*p) && *p != '\t') {
+            return false;
+        }
+    }
+
+    if (line[0] == '$' || line[0] == '#') {
+        return console_has_checksum_suffix(line);
+    }
+
+    if (strcasecmp(line, "OK") == 0 ||
+        strncasecmp(line, "ERR", 3) == 0 ||
+        strncasecmp(line, "ERROR", 5) == 0 ||
+        strncasecmp(line, "WARNING", 7) == 0) {
+        return true;
+    }
+
+    return false;
+}
+
+static bool console_is_likely_line_start(uint8_t b)
+{
+    return b == '$' || b == '#' ||
+           b == 'O' || b == 'o' ||
+           b == 'E' || b == 'e' ||
+           b == 'W' || b == 'w';
+}
+
+static void console_append_locked(const char *data, size_t len)
+{
+    if (len >= GNSS_CONSOLE_BUFFER_SIZE) {
+        data += len - GNSS_CONSOLE_BUFFER_SIZE + 1;
+        len = GNSS_CONSOLE_BUFFER_SIZE - 1;
+    }
+
+    for (size_t i = 0; i < len; i++) {
+        s_console_buffer[s_console_head] = data[i];
+        s_console_head = (s_console_head + 1) % GNSS_CONSOLE_BUFFER_SIZE;
+        if (s_console_used < GNSS_CONSOLE_BUFFER_SIZE) {
+            s_console_used++;
+        }
+    }
+}
+
+static void console_store_line_locked(void)
+{
+    if (s_console_line_len == 0) {
+        return;
+    }
+
+    s_console_line[s_console_line_len] = '\0';
+    if (!s_console_line_binary && console_line_interesting(s_console_line)) {
+        console_append_locked(s_console_line, s_console_line_len);
+        console_append_locked("\n", 1);
+    }
+
+    s_console_line_len = 0;
+    s_console_line_binary = false;
+}
+
+static void console_push_bytes(const uint8_t *data, size_t len)
+{
+    portENTER_CRITICAL(&s_console_mux);
+    for (size_t i = 0; i < len; i++) {
+        uint8_t b = data[i];
+
+        if (b == '\r' || b == '\n') {
+            console_store_line_locked();
+            continue;
+        }
+
+        if (b == '\t' || (b >= 0x20 && b <= 0x7E)) {
+            if (s_console_line_binary) {
+                if (!console_is_likely_line_start(b)) {
+                    continue;
+                }
+
+                s_console_line_binary = false;
+                s_console_line_len = 0;
+            }
+
+            if (s_console_line_len + 1 >= sizeof(s_console_line)) {
+                console_store_line_locked();
+            }
+            s_console_line[s_console_line_len++] = (char)b;
+        } else {
+            // Binary data, typically RTCM, invalidates the current text line.
+            s_console_line_binary = true;
+            s_console_line_len = 0;
+        }
+    }
+    portEXIT_CRITICAL(&s_console_mux);
 }
 
 // ─── Publish a validated RTCM3 frame to all active NTRIP destinations ───────
@@ -331,6 +475,7 @@ static void task_gnss_reader(void *pvParams)
     ESP_LOGI(TAG, "UART%d ready @ %d baud TX=%d RX=%d (event-driven)",
              uart_port, uart_cfg.baud_rate,
              pin_tx, pin_rx);
+    s_uart_port = uart_port;
 
     splitter_t splitter;
     splitter_init(&splitter);
@@ -355,6 +500,7 @@ static void task_gnss_reader(void *pvParams)
                 // Forward the raw byte stream to the TCP bridge for UPrecise.
                 raw_frame.len = (size_t)n;
                 post_raw_gnss_data_tcp(&raw_frame);
+                console_push_bytes(raw_frame.data, (size_t)n);
 
                 // Extract only validated RTCM3 frames for the NTRIP uplinks and
                 // local caster. All other UART bytes are ignored here.
@@ -401,6 +547,13 @@ static void task_gnss_reader(void *pvParams)
 
 void gnss_uart_init(void)
 {
+    if (s_uart_tx_mutex == NULL) {
+        s_uart_tx_mutex = xSemaphoreCreateMutex();
+        if (s_uart_tx_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create UART TX mutex");
+            return;
+        }
+    }
     xTaskCreatePinnedToCore(task_gnss_reader, "gnss_reader", 4096, NULL, 5, NULL, 1);
 }
 
@@ -414,4 +567,67 @@ void gnss_uart_get_diagnostics(gnss_uart_diag_t *diag)
     diag->last_rtcm_ms = last_rtcm_ms;
     diag->rtcm_bad_len_count = rtcm_bad_len_count;
     diag->rtcm_crc_fail_count = rtcm_crc_fail_count;
+}
+
+esp_err_t gnss_uart_send_command(const char *command, size_t len)
+{
+    if (command == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (s_uart_port == UART_NUM_MAX || s_uart_tx_mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    while (len > 0 && (command[len - 1] == '\r' || command[len - 1] == '\n')) {
+        len--;
+    }
+
+    if (len == 0 || len > GNSS_COMMAND_MAX_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(s_uart_tx_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    int written = uart_write_bytes(s_uart_port, command, len);
+    if (written == (int)len) {
+        written += uart_write_bytes(s_uart_port, "\r\n", 2);
+    }
+    xSemaphoreGive(s_uart_tx_mutex);
+
+    return written == (int)(len + 2) ? ESP_OK : ESP_FAIL;
+}
+
+size_t gnss_uart_console_snapshot(char *dest, size_t dest_size)
+{
+    if (dest == NULL || dest_size == 0) {
+        return 0;
+    }
+
+    portENTER_CRITICAL(&s_console_mux);
+    size_t used = s_console_used;
+    size_t start = (s_console_head + GNSS_CONSOLE_BUFFER_SIZE - used) % GNSS_CONSOLE_BUFFER_SIZE;
+    size_t to_copy = used < dest_size - 1 ? used : dest_size - 1;
+    size_t skip = used - to_copy;
+    start = (start + skip) % GNSS_CONSOLE_BUFFER_SIZE;
+
+    for (size_t i = 0; i < to_copy; i++) {
+        dest[i] = s_console_buffer[(start + i) % GNSS_CONSOLE_BUFFER_SIZE];
+    }
+    portEXIT_CRITICAL(&s_console_mux);
+
+    dest[to_copy] = '\0';
+    return to_copy;
+}
+
+void gnss_uart_console_clear(void)
+{
+    portENTER_CRITICAL(&s_console_mux);
+    s_console_head = 0;
+    s_console_used = 0;
+    s_console_line_len = 0;
+    s_console_line_binary = false;
+    portEXIT_CRITICAL(&s_console_mux);
 }

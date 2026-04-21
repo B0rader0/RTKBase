@@ -17,5 +17,7 @@ CONFIG_LWIP_LOCAL_HOSTNAME="esp32xbee"
 CONFIG_LWIP_IP_FORWARD=y
 # Enable IPv4 NAPT (NAT with port translation).       
 CONFIG_LWIP_IPV4_NAPT=y                     
+# Leave enough sockets for HTTP, TCP bridge, NTRIP caster rovers, and uplinks.
+CONFIG_LWIP_MAX_SOCKETS=16
 
 CONFIG_SPIFFS_PAGE_SIZE=1024

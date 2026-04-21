@@ -1,0 +1,236 @@
+<html>
+<head>
+    <title>GNSS Console</title>
+    <script src="jquery-3.4.1.min.js"></script>
+    <script src="bs-4.3.1.bundle.min.js"></script>
+    <link rel="stylesheet" href="bs-4.3.1.min.css">
+    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+    <style>
+        #gnss-log {
+            min-height: 22rem;
+            font-family: "Courier New", Courier, monospace;
+            white-space: pre;
+        }
+    </style>
+    <script>
+        $(function() {
+            var commandInput = $('#command');
+            var sendButton = $('#send-command');
+            var clearButton = $('#clear-log');
+            var statusText = $('#status-text');
+            var rtcmText = $('#rtcm-text');
+            var tcpText = $('#tcp-text');
+            var logText = $('#gnss-log');
+            var busy = false;
+            var tcpConnected = false;
+            var commandHistory = JSON.parse(localStorage.getItem('gnssCommandHistory') || '[]');
+            var historyIndex = commandHistory.length;
+
+            var secondsAgoText = function(seconds) {
+                seconds = Math.max(0, Math.floor(seconds));
+                if (seconds < 60) return seconds + "s ago";
+                if (seconds < 3600) return Math.floor(seconds / 60) + "m ago";
+                if (seconds < 86400) return Math.floor(seconds / 3600) + "h ago";
+                return Math.floor(seconds / 86400) + "d ago";
+            };
+
+            var updateControls = function() {
+                var hasCommand = commandInput.val().trim().length > 0;
+                sendButton.prop('disabled', busy || tcpConnected || !hasCommand);
+            };
+
+            var setStatus = function(text, success) {
+                statusText
+                    .toggleClass('text-success', success === true)
+                    .toggleClass('text-danger', success === false)
+                    .text(text);
+            };
+
+            var saveCommandHistory = function(command) {
+                commandHistory = commandHistory.filter(function(item) {
+                    return item !== command;
+                });
+                commandHistory.push(command);
+                if (commandHistory.length > 16) {
+                    commandHistory = commandHistory.slice(commandHistory.length - 16);
+                }
+                historyIndex = commandHistory.length;
+                localStorage.setItem('gnssCommandHistory', JSON.stringify(commandHistory));
+            };
+
+            var showHistoryCommand = function(index) {
+                if (index < 0 || index >= commandHistory.length) {
+                    commandInput.val('');
+                } else {
+                    commandInput.val(commandHistory[index]);
+                }
+                updateControls();
+            };
+
+            var updateStatus = function() {
+                $.ajax({
+                    url: 'status?_=' + Date.now(),
+                    dataType: 'json',
+                    cache: false,
+                    timeout: 2000
+                }).done(function(data) {
+                    tcpConnected = data.tcp_server && data.tcp_server.connected;
+                    tcpText
+                        .toggleClass('text-danger', tcpConnected)
+                        .toggleClass('text-success', !tcpConnected)
+                        .text(tcpConnected ? "TCP client connected: web commands blocked" : "TCP client disconnected");
+
+                    if (data.gnss) {
+                        var frames = data.gnss.rtcm_frames || 0;
+                        var ageMs = typeof data.gnss.last_rtcm_age_ms === 'number' ? data.gnss.last_rtcm_age_ms : -1;
+                        var text = "";
+                        var cls = "text-muted";
+
+                        if (frames > 0 && ageMs >= 0) {
+                            if (ageMs < 5000) {
+                                text = "GNSS RTCM receiving";
+                                cls = "text-success";
+                            } else if (ageMs < 30000) {
+                                text = "GNSS RTCM stale";
+                                cls = "text-warning";
+                            } else {
+                                text = "GNSS RTCM lost";
+                                cls = "text-danger";
+                            }
+                            text += " / last " + secondsAgoText(ageMs / 1000);
+                        } else {
+                            text = "GNSS RTCM none seen";
+                            cls = "text-danger";
+                        }
+
+                        text += " / " + frames + " frames / CRC " + (data.gnss.rtcm_crc_fail_count || 0);
+                        rtcmText
+                            .removeClass('text-success text-warning text-danger text-muted')
+                            .addClass(cls)
+                            .text(text);
+                    }
+                }).always(function() {
+                    updateControls();
+                    setTimeout(updateStatus, 2500);
+                });
+            };
+
+            var updateLog = function() {
+                $.ajax({
+                    url: 'gnss/log?_=' + Date.now(),
+                    cache: false,
+                    timeout: 2000
+                }).done(function(data) {
+                    logText.val(data);
+                    logText.scrollTop(logText[0].scrollHeight);
+                }).always(function() {
+                    setTimeout(updateLog, 1500);
+                });
+            };
+
+            commandInput.on('input', updateControls);
+            commandInput.on('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendButton.trigger('click');
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (historyIndex > 0) {
+                        historyIndex--;
+                        showHistoryCommand(historyIndex);
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (historyIndex < commandHistory.length) {
+                        historyIndex++;
+                        showHistoryCommand(historyIndex);
+                    }
+                }
+            });
+
+            sendButton.on('click', function() {
+                var command = commandInput.val().trim();
+                if (!command) return;
+
+                busy = true;
+                updateControls();
+                setStatus("Sending command...", null);
+
+                $.ajax({
+                    url: 'gnss/command',
+                    method: 'POST',
+                    data: command,
+                    processData: false,
+                    contentType: 'text/plain',
+                    timeout: 5000
+                }).done(function(data) {
+                    if (data && data.success) {
+                        setStatus(data.message || "Command sent.", true);
+                        saveCommandHistory(command);
+                        commandInput.val('');
+                    } else {
+                        setStatus((data && data.message) || "Command failed.", false);
+                    }
+                }).fail(function(xhr) {
+                    setStatus('Command failed: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : (xhr.responseText || xhr.statusText)), false);
+                }).always(function() {
+                    busy = false;
+                    updateControls();
+                    updateLog();
+                });
+            });
+
+            clearButton.on('click', function() {
+                $.post('gnss/log/clear').always(updateLog);
+            });
+
+            updateControls();
+            updateStatus();
+            updateLog();
+        });
+    </script>
+</head>
+<body class="bg-light">
+    <div class="container">
+        <div class="pt-5 text-center">
+            <h2>GNSS Console</h2>
+            <p class="lead">Send ASCII commands to the connected GNSS receiver. Commands are sent with CRLF line endings.</p>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header">Status</div>
+            <div class="card-body">
+                <div><small id="rtcm-text" class="text-muted">GNSS RTCM loading...</small></div>
+                <div><small id="tcp-text" class="text-muted">TCP status loading...</small></div>
+                <div><small id="status-text" class="text-muted"></small></div>
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Receiver text</span>
+                <button id="clear-log" type="button" class="btn btn-sm btn-outline-secondary">Clear</button>
+            </div>
+            <div class="card-body">
+                <textarea id="gnss-log" class="form-control" readonly></textarea>
+                <small class="form-text text-muted">Binary RTCM data is filtered out; printable receiver text such as NMEA, command echoes, OK/ERR, and ASCII responses is shown.</small>
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header">Command</div>
+            <div class="card-body">
+                <div class="input-group">
+                    <input id="command" type="text" class="form-control">
+                    <div class="input-group-append">
+                        <button id="send-command" type="button" class="btn btn-primary" disabled>Send</button>
+                    </div>
+                </div>
+                <small class="form-text text-muted">Do not include CR/LF; the station appends CRLF automatically. Use Up/Down to browse the last 16 commands. Web commands are blocked while a TCP/UPrecise client is connected.</small>
+            </div>
+        </div>
+        <div class="border-top pt-3 text-center mb-3">
+            <a href="/" class="mr-3">Home</a>
+            <a href="/log.html" class="mr-3">Log Viewer</a>
+            <a href="/status">Status JSON</a>
+        </div>
+    </div>
+</body>
+</html>
