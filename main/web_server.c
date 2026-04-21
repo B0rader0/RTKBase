@@ -31,6 +31,7 @@
 #include <util.h>
 #include <lwip/inet.h>
 #include <esp_ota_ops.h>
+#include <esp_partition.h>
 #include <esp_wifi_ap_get_sta_list.h> 
 #include <stream_stats.h>
 #include <esp32/rom/crc.h>
@@ -58,6 +59,7 @@
 #define WWW_PARTITION_PATH "/www"
 #define WWW_PARTITION_LABEL "www"
 #define BUFFER_SIZE 2048
+#define OTA_UPLOAD_BUF_SIZE 2048
 
 static const char *TAG = "WEB";
 
@@ -198,7 +200,8 @@ static char* get_path_from_uri(char *dest, const char *base_path, const char *ur
 
     // Construct full path (base + path)
     strlcpy(dest, base_path, destsize);
-    strlcpy(dest + base_pathlen, uri, destsize - base_pathlen);
+    memcpy(dest + base_pathlen, uri, pathlen);
+    dest[base_pathlen + pathlen] = '\0';
 
     // Return pointer to path, skipping the base
     return dest + base_pathlen;
@@ -590,6 +593,152 @@ static esp_err_t tcp_server_disconnect_post_handler(httpd_req_t *req) {
     return json_response(req, root);
 }
 
+static esp_err_t ota_firmware_post_handler(httpd_req_t *req)
+{
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    char *upload_buf = malloc(OTA_UPLOAD_BUF_SIZE);
+    if (upload_buf == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No upload buffer");
+        return ESP_FAIL;
+    }
+
+    const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
+    if (update_partition == NULL) {
+        free(upload_buf);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
+        return ESP_FAIL;
+    }
+
+    if (req->content_len <= 0 || req->content_len > update_partition->size) {
+        free(upload_buf);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid firmware image size");
+        return ESP_FAIL;
+    }
+
+    esp_ota_handle_t ota_handle = 0;
+    esp_err_t err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &ota_handle);
+    if (err != ESP_OK) {
+        free(upload_buf);
+        ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA begin failed");
+        return ESP_FAIL;
+    }
+
+    int remaining = req->content_len;
+    while (remaining > 0) {
+        int received = httpd_req_recv(req, upload_buf, MIN(remaining, OTA_UPLOAD_BUF_SIZE));
+        if (received <= 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            err = ESP_FAIL;
+            break;
+        }
+
+        err = esp_ota_write(ota_handle, upload_buf, received);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
+            break;
+        }
+        remaining -= received;
+    }
+
+    free(upload_buf);
+
+    if (err == ESP_OK) {
+        err = esp_ota_end(ota_handle);
+    } else {
+        esp_ota_abort(ota_handle);
+    }
+
+    if (err == ESP_OK) {
+        err = esp_ota_set_boot_partition(update_partition);
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", err == ESP_OK);
+    cJSON_AddStringToObject(root, "message", err == ESP_OK ? "Firmware uploaded. Restart to boot it." : esp_err_to_name(err));
+    return json_response(req, root);
+}
+
+static esp_err_t ota_www_post_handler(httpd_req_t *req)
+{
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    const esp_partition_t *www_partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, WWW_PARTITION_LABEL);
+    if (www_partition == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No www partition");
+        return ESP_FAIL;
+    }
+
+    if (req->content_len != www_partition->size) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid www image size");
+        return ESP_FAIL;
+    }
+
+    char *upload_buf = malloc(OTA_UPLOAD_BUF_SIZE);
+    if (upload_buf == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No upload buffer");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = esp_partition_erase_range(www_partition, 0, www_partition->size);
+    int remaining = req->content_len;
+    size_t offset = 0;
+
+    while (err == ESP_OK && remaining > 0) {
+        int received = httpd_req_recv(req, upload_buf, MIN(remaining, OTA_UPLOAD_BUF_SIZE));
+        if (received <= 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            err = ESP_FAIL;
+            break;
+        }
+
+        err = esp_partition_write(www_partition, offset, upload_buf, received);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "esp_partition_write(www) failed: %s", esp_err_to_name(err));
+            break;
+        }
+        offset += (size_t)received;
+        remaining -= received;
+    }
+
+    free(upload_buf);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", err == ESP_OK);
+    cJSON_AddStringToObject(root, "message", err == ESP_OK ? "Web image uploaded. Restart to remount it." : esp_err_to_name(err));
+    return json_response(req, root);
+}
+
+static esp_err_t ota_restart_post_handler(httpd_req_t *req)
+{
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    esp_err_t response_err = json_response(req, root);
+
+    if (!restart_scheduled) {
+        xTaskCreatePinnedToCore(
+            delayed_restart_task,
+            "ota_restart",
+            2048,
+            NULL,
+            1,
+            NULL,
+            0
+        );
+        restart_scheduled = true;
+    }
+
+    return response_err;
+}
+
 static esp_err_t status_get_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
@@ -800,7 +949,7 @@ static httpd_handle_t web_server_start(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 6144;
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.max_uri_handlers = 10;
+    config.max_uri_handlers = 14;
 
     // Start the httpd server
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
@@ -808,6 +957,9 @@ static httpd_handle_t web_server_start(void)
         register_uri_handler(server, "/config", HTTP_GET, config_get_handler);
         register_uri_handler(server, "/config", HTTP_POST, config_post_handler);
         register_uri_handler(server, "/tcp_server/disconnect", HTTP_POST, tcp_server_disconnect_post_handler);
+        register_uri_handler(server, "/ota/firmware", HTTP_POST, ota_firmware_post_handler);
+        register_uri_handler(server, "/ota/www", HTTP_POST, ota_www_post_handler);
+        register_uri_handler(server, "/ota/restart", HTTP_POST, ota_restart_post_handler);
         register_uri_handler(server, "/status", HTTP_GET, status_get_handler);
         register_uri_handler(server, "/log", HTTP_GET, log_get_handler);
         register_uri_handler(server, "/core_dump", HTTP_GET, core_dump_get_handler);

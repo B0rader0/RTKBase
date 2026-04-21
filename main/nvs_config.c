@@ -141,6 +141,16 @@ const config_item_t CONFIG_ITEMS[] = {
         .type = TYPE_CFG_ITEM_SECRET_STR,
         .def.str = ""
     },
+    {
+        .key = KEY_CONFIG_OTA_FIRMWARE_PATH,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = "build/RTKBase.bin"
+    },
+    {
+        .key = KEY_CONFIG_OTA_WWW_PATH,
+        .type = TYPE_CFG_ITEM_STR,
+        .def.str = "build/www.bin"
+    },
      {
         .key = KEY_CONFIG_STATION_HOSTNAME,
         .type = TYPE_CFG_ITEM_STR,

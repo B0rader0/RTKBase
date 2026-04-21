@@ -135,6 +135,23 @@
             });
 
             var form = $("#form");
+            var reloadOnStatus = false;
+
+            var reloadPageFresh = function() {
+                var url = new URL(window.location.href);
+                url.searchParams.set('_', Date.now());
+                window.location.replace(url.toString());
+            };
+
+            var waitForRestartAndReload = function() {
+                $('#restarting-modal').modal('show');
+                reloadOnStatus = false;
+
+                // Give the restart a moment to actually take the server down.
+                setTimeout(function() {
+                    reloadOnStatus = true;
+                }, 2500);
+            };
 
             form.on('submit', function(e) {
                 e.preventDefault();
@@ -144,12 +161,7 @@
                     var submit = form.find(':submit').prop('disabled', true);
                     var data = JSON.stringify($(this).serializeObject());
                     $.post('config', data).done(function() {
-                        $('#restarting-modal').modal('show');
-
-                        // Allow some time to reload
-                        setTimeout(function() {
-                            reloadOnStatus = true;
-                        }, 2500);
+                        waitForRestartAndReload();
                     }).always(function() {
                         submit.prop('disabled', false);
                     });
@@ -303,6 +315,20 @@
             var baseStationFirmwareText = form.find('.base-station-firmware');
             var baseStationRtcmText = form.find('.base-station-rtcm');
             var baseStationConnectionsText = form.find('.base-station-connections');
+            var otaFirmwareInput = form.find('.ota-firmware-file');
+            var otaWwwInput = form.find('.ota-www-file');
+            var otaFirmwareButton = form.find('.ota-firmware-upload');
+            var otaWwwButton = form.find('.ota-www-upload');
+            var otaRestartButton = form.find('.ota-restart');
+            var otaStatusText = form.find('.ota-status');
+            var otaFirmwareLastText = form.find('.ota-firmware-last');
+            var otaWwwLastText = form.find('.ota-www-last');
+            var otaControls = otaFirmwareInput
+                .add(otaWwwInput)
+                .add(otaFirmwareButton)
+                .add(otaWwwButton)
+                .add(otaRestartButton)
+                .add(form.find(':submit'));
 
             var wifiApStatusText = form.find('.wifi-ap-status');
             var wifiStaStatusText = form.find('.wifi-sta-status');
@@ -316,8 +342,6 @@
             var ntripCasterDiagText = form.find('.ntrip-caster-diag');
 
             var streamStatsTexts = form.find('.stream-stats');
-
-            var reloadOnStatus = false;
 
             var secondsToUptime = (seconds) => {
                 seconds = Math.max(0, parseInt(seconds) || 0);
@@ -367,11 +391,15 @@
 
             var statusUpdate = function() {
                 $.ajax({
-                    url: 'status',
+                    url: 'status?_=' + Date.now(),
                     dataType: 'json',
+                    cache: false,
                     timeout: 2000
                 }).done(function(data) {
-                    if (reloadOnStatus) window.location.reload();
+                    if (reloadOnStatus) {
+                        reloadPageFresh();
+                        return;
+                    }
 
                     // Uptime
                     var uptimeText = secondsToUptime(data.uptime);
@@ -521,6 +549,91 @@
                 });
             };
             statusUpdate();
+
+            var updateOtaLastLabels = function() {
+                otaFirmwareLastText.text(localStorage.getItem('otaFirmwareFile') || 'none');
+                otaWwwLastText.text(localStorage.getItem('otaWwwFile') || 'none');
+            };
+
+            var setOtaStatus = function(text, success) {
+                otaStatusText
+                    .toggleClass('text-success', success === true)
+                    .toggleClass('text-danger', success === false)
+                    .text(text);
+            };
+
+            var setOtaBusy = function(busy) {
+                otaControls.prop('disabled', busy);
+            };
+
+            var uploadOtaFile = function(input, button, url, storageKey, label) {
+                var file = input[0].files[0];
+                if (!file) {
+                    setOtaStatus('Select a ' + label + ' file first.', false);
+                    return;
+                }
+
+                localStorage.setItem(storageKey, file.name);
+                updateOtaLastLabels();
+                setOtaBusy(true);
+                setOtaStatus('Uploading ' + label + ' (' + file.name + ')...', null);
+
+                $.ajax({
+                    url: url,
+                    method: 'POST',
+                    data: file,
+                    processData: false,
+                    contentType: 'application/octet-stream',
+                    timeout: 120000
+                }).done(function(data) {
+                    if (data && data.success) {
+                        setOtaStatus(data.message || (label + ' uploaded.'), true);
+                    } else {
+                        setOtaStatus((data && data.message) || (label + ' upload failed.'), false);
+                    }
+                }).fail(function(xhr) {
+                    setOtaStatus(label + ' upload failed: ' + (xhr.responseText || xhr.statusText), false);
+                }).always(function() {
+                    setOtaBusy(false);
+                });
+            };
+
+            updateOtaLastLabels();
+
+            otaFirmwareInput.on('change', function() {
+                if (this.files[0]) {
+                    localStorage.setItem('otaFirmwareFile', this.files[0].name);
+                    $(this).next('.custom-file-label').text(this.files[0].name);
+                    updateOtaLastLabels();
+                }
+            });
+
+            otaWwwInput.on('change', function() {
+                if (this.files[0]) {
+                    localStorage.setItem('otaWwwFile', this.files[0].name);
+                    $(this).next('.custom-file-label').text(this.files[0].name);
+                    updateOtaLastLabels();
+                }
+            });
+
+            otaFirmwareButton.on('click', function() {
+                uploadOtaFile(otaFirmwareInput, otaFirmwareButton, 'ota/firmware', 'otaFirmwareFile', 'firmware image');
+            });
+
+            otaWwwButton.on('click', function() {
+                uploadOtaFile(otaWwwInput, otaWwwButton, 'ota/www', 'otaWwwFile', 'web image');
+            });
+
+            otaRestartButton.on('click', function() {
+                setOtaBusy(true);
+                setOtaStatus('Restarting...', null);
+                $.post('ota/restart').done(function() {
+                    waitForRestartAndReload();
+                }).fail(function(xhr) {
+                    setOtaStatus('Restart request failed: ' + (xhr.responseText || xhr.statusText), false);
+                    setOtaBusy(false);
+                });
+            });
 
             tcpServerDisconnectButton.on('click', function() {
                 const button = $(this);
@@ -845,6 +958,69 @@
                                 <div class="col-4">
                                     <label>Password</label>
                                     <input type="password" name="adm_pass" data-disable-if="select[name='adm_auth'] > option[value!='2']" data-disable-if-condition=":selected" class="form-control" maxlength="64" required/>
+                                </div>
+                            </div>
+                            <hr>
+                            <div class="form-row mb-2">
+                                <div class="col">
+                                    <label class="font-weight-bold">Software update</label>
+                                    <small class="form-text text-muted">Firmware and web image uploads use the same access rules as this Admin page. The saved paths are only copyable reminders; browsers do not allow web pages to pre-fill file pickers.</small>
+                                </div>
+                            </div>
+                            <div class="form-row mb-3">
+                                <div class="col-md-6">
+                                    <label>Firmware image path</label>
+                                    <input type="text" name="ota_fw_path" class="form-control" maxlength="192" placeholder="build/RTKBase.bin">
+                                </div>
+                                <div class="col-md-6">
+                                    <label>Web image path</label>
+                                    <input type="text" name="ota_www_path" class="form-control" maxlength="192" placeholder="build/www.bin">
+                                </div>
+                            </div>
+                            <div class="form-row mb-3">
+                                <div class="col-12">
+                                    <label>Firmware image</label>
+                                </div>
+                                <div class="col-md-7">
+                                    <div class="custom-file">
+                                        <input type="file" class="custom-file-input ota-firmware-file" id="ota-firmware-file">
+                                        <label class="custom-file-label" for="ota-firmware-file">Choose firmware .bin</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-5">
+                                    <button type="button" class="ota-firmware-upload btn btn-outline-primary btn-block">Upload firmware</button>
+                                </div>
+                                <div class="col-12">
+                                    <small class="text-muted">
+                                        Last selected file: <span class="ota-firmware-last">none</span>
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="form-row mb-3">
+                                <div class="col-12">
+                                    <label>Web files image</label>
+                                </div>
+                                <div class="col-md-7">
+                                    <div class="custom-file">
+                                        <input type="file" class="custom-file-input ota-www-file" id="ota-www-file">
+                                        <label class="custom-file-label" for="ota-www-file">Choose web .bin</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-5">
+                                    <button type="button" class="ota-www-upload btn btn-outline-primary btn-block">Upload web</button>
+                                </div>
+                                <div class="col-12">
+                                    <small class="text-muted">
+                                        Last selected file: <span class="ota-www-last">none</span>
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="form-row justify-content-center">
+                                <div class="col-md-6">
+                                    <button type="button" class="ota-restart btn btn-outline-danger btn-block">Restart after update</button>
+                                </div>
+                                <div class="col-12 text-center mt-2">
+                                    <small class="ota-status text-muted"></small>
                                 </div>
                             </div>
                         </div>

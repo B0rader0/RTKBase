@@ -6,6 +6,7 @@
 #include <core_dump.h>
 #include <stream_stats.h>
 #include <freertos/FreeRTOS.h>
+#include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <esp_log.h>
 #include "nvs_config.h"
@@ -20,6 +21,7 @@
 static const char *TAG = "MAIN";
 
 static char *reset_reason_name(esp_reset_reason_t reason);
+static void ota_mark_running_app_valid(void);
  
 void app_main()
 {
@@ -98,6 +100,8 @@ void app_main()
     ntrip_client_init();
     ntrip_caster_init();
 
+    ota_mark_running_app_valid();
+
     // Web server: 12288 bytes — cJSON heap alloc is lean but the blocking
     // wifi_manager_scan() call uses significant internal WiFi stack frames.
 /* 
@@ -110,6 +114,24 @@ void app_main()
     
  
 }  // app_main
+
+static void ota_mark_running_app_valid(void)
+{
+#ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+
+    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK &&
+        ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+        esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "OTA image marked valid");
+        } else {
+            ESP_LOGE(TAG, "Failed to mark OTA image valid: %s", esp_err_to_name(err));
+        }
+    }
+#endif
+}
 
 // Helper function to convert reset reason enum to string for logging purposes
 static char *reset_reason_name(esp_reset_reason_t reason) {
