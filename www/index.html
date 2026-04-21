@@ -419,17 +419,39 @@
 
                     if (data.gnss) {
                         var lastRtcmAgeMs = typeof data.gnss.last_rtcm_age_ms === 'number' ? data.gnss.last_rtcm_age_ms : -1;
-                        var rtcmText = (data.gnss.rtcm_frames || 0) + " frames";
-                        if ((data.gnss.rtcm_frames || 0) > 0 && lastRtcmAgeMs >= 0) {
+                        var rtcmFrames = data.gnss.rtcm_frames || 0;
+                        var rtcmText = "";
+                        var rtcmClass = "text-muted";
+
+                        if (rtcmFrames > 0 && lastRtcmAgeMs >= 0) {
+                            if (lastRtcmAgeMs < 5000) {
+                                rtcmText = "receiving";
+                                rtcmClass = "text-success";
+                            } else if (lastRtcmAgeMs < 30000) {
+                                rtcmText = "stale";
+                                rtcmClass = "text-warning";
+                            } else {
+                                rtcmText = "lost";
+                                rtcmClass = "text-danger";
+                            }
                             rtcmText += " / last " + secondsAgoText(lastRtcmAgeMs / 1000);
                         } else {
-                            rtcmText += " / none seen";
+                            rtcmText = "none seen";
+                            rtcmClass = "text-danger";
                         }
-                        rtcmText += " / bad len " + (data.gnss.rtcm_bad_len_count || 0) +
+
+                        rtcmText += " / " + rtcmFrames + " frames" +
+                            " / bad len " + (data.gnss.rtcm_bad_len_count || 0) +
                             " / CRC " + (data.gnss.rtcm_crc_fail_count || 0);
-                        baseStationRtcmText.text(rtcmText);
+                        baseStationRtcmText
+                            .removeClass('text-success text-warning text-danger text-muted')
+                            .addClass(rtcmClass)
+                            .text(rtcmText);
                     } else {
-                        baseStationRtcmText.text("unavailable");
+                        baseStationRtcmText
+                            .removeClass('text-success text-warning text-danger text-muted')
+                            .addClass('text-muted')
+                            .text("unavailable");
                     }
 
                     var rovers = data.ntrip_caster ? (data.ntrip_caster.active_rovers || 0) : 0;
@@ -1242,7 +1264,7 @@
                             <div class="form-row">
                                 <div class="col">
                                     <small class="text-muted">
-                                        RTCM <span class="base-station-rtcm">loading...</span>
+                                        GNSS RTCM <span class="base-station-rtcm">loading...</span>
                                         / Connections <span class="base-station-connections">loading...</span>
                                     </small>
                                 </div>
