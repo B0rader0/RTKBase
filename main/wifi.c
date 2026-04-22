@@ -1,5 +1,8 @@
 /*
- * This file is based on ESP32-XBee distribution (https://github.com/nebkat/esp32-xbee).
+ * SPDX-License-Identifier: GPL-3.0-only
+ *
+ * RTKBase implementation, inspired by the ESP32-XBee project:
+ * https://github.com/nebkat/esp32-xbee
  */
 
 #include <freertos/FreeRTOS.h>
@@ -15,6 +18,7 @@
 #include <lwip/lwip_napt.h>
 #include "wifi.h"
 #include "nvs_config.h"
+#include "time_sync.h"
 
 static const char *TAG = "WIFI";
 
@@ -233,6 +237,7 @@ static void handle_sta_got_ip(void *esp_netif, esp_event_base_t base, int32_t ev
             IP2STR(&event->ip_info.gw));
    
     xEventGroupSetBits(wifi_event_group, WIFI_STA_GOT_IPV4_BIT);
+    time_sync_start();
 }
 
 static void handle_sta_lost_ip(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {

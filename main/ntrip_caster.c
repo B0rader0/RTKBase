@@ -44,7 +44,18 @@ typedef struct {
     char          rx_buf[ROVER_REQ_BUF_SIZE];
     int           rx_pos;
     bool          is_ntrip_v2;
+    uint8_t       tx_pending[MAX_RTCM_FRAME];
+    size_t        tx_pending_len;
+    size_t        tx_pending_pos;
 } rover_conn_t;
+
+typedef enum {
+    ROVER_CLOSE_PEER_CLOSED,
+    ROVER_CLOSE_RECV_ERROR,
+    ROVER_CLOSE_HANDSHAKE_FAILED,
+    ROVER_CLOSE_REQUEST_TOO_LARGE,
+    ROVER_CLOSE_SEND_ERROR,
+} rover_close_reason_t;
 
 static rover_conn_t  s_rovers[MAX_ROVERS];
 static SemaphoreHandle_t s_rovers_mutex;
@@ -62,7 +73,7 @@ typedef struct {
 } caster_config_t;
 
 static caster_config_t s_cfg;
-static void close_rover(rover_conn_t *rover, int index);
+static void close_rover(rover_conn_t *rover, int index, rover_close_reason_t reason, int err);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -231,17 +242,46 @@ static void caster_log_rover_block(int rover_index, size_t remaining)
     }
 }
 
-static bool send_frame_to_rover(rover_conn_t *rover, int rover_index, const uint8_t *data, size_t len)
+static void caster_log_rover_slow_drop(int rover_index)
 {
-    const uint8_t *ptr = data;
-    size_t remaining = len;
+    s_diag.rover_slow_drops++;
+    if ((s_diag.rover_slow_drops & NTRIP_CASTER_DIAG_LOG_MASK) == 1) {
+        ESP_LOGW(TAG, "Rover %d slow, dropped whole frame count=%lu",
+                 rover_index, (unsigned long)s_diag.rover_slow_drops);
+    }
+}
+
+static const char *rover_close_reason_text(rover_close_reason_t reason)
+{
+    switch (reason) {
+    case ROVER_CLOSE_PEER_CLOSED:
+        return "peer closed connection";
+    case ROVER_CLOSE_RECV_ERROR:
+        return "receive error";
+    case ROVER_CLOSE_HANDSHAKE_FAILED:
+        return "handshake failed";
+    case ROVER_CLOSE_REQUEST_TOO_LARGE:
+        return "request too large";
+    case ROVER_CLOSE_SEND_ERROR:
+        return "send error";
+    }
+
+    return "unknown";
+}
+
+static int send_bytes_to_rover(rover_conn_t *rover,
+                               int rover_index,
+                               const uint8_t *data,
+                               size_t len,
+                               size_t *offset)
+{
     int retries = 0;
 
-    while (remaining > 0) {
-        int sent = send(rover->fd, ptr, remaining, MSG_DONTWAIT);
+    while (*offset < len) {
+        size_t remaining = len - *offset;
+        int sent = send(rover->fd, data + *offset, remaining, MSG_DONTWAIT);
         if (sent > 0) {
-            ptr += sent;
-            remaining -= (size_t)sent;
+            *offset += (size_t)sent;
             retries = 0;
             continue;
         }
@@ -251,23 +291,76 @@ static bool send_frame_to_rover(rover_conn_t *rover, int rover_index, const uint
                 caster_log_rover_block(rover_index, remaining);
             }
             if (++retries > ROVER_STREAM_SEND_RETRIES) {
-                s_diag.rover_slow_drops++;
-                if ((s_diag.rover_slow_drops & NTRIP_CASTER_DIAG_LOG_MASK) == 1) {
-                    ESP_LOGW(TAG, "Rover %d slow, dropped frame count=%lu",
-                             rover_index, (unsigned long)s_diag.rover_slow_drops);
-                }
-                return false;
+                return 0;
             }
             vTaskDelay(pdMS_TO_TICKS(ROVER_STREAM_SEND_RETRY_MS));
             continue;
         }
 
         s_diag.rover_send_errors++;
-        ESP_LOGW(TAG, "Rover %d send error, closing", rover_index);
-        close_rover(rover, rover_index);
+        close_rover(rover, rover_index, ROVER_CLOSE_SEND_ERROR, errno);
+        return -1;
+    }
+
+    return 1;
+}
+
+static bool flush_rover_pending(rover_conn_t *rover, int rover_index)
+{
+    if (rover->tx_pending_pos >= rover->tx_pending_len) {
+        rover->tx_pending_len = 0;
+        rover->tx_pending_pos = 0;
+        return true;
+    }
+
+    int result = send_bytes_to_rover(rover, rover_index,
+                                     rover->tx_pending,
+                                     rover->tx_pending_len,
+                                     &rover->tx_pending_pos);
+    if (result < 0) {
+        rover->tx_pending_len = 0;
+        rover->tx_pending_pos = 0;
+        return false;
+    }
+    if (result == 0) {
         return false;
     }
 
+    rover->tx_pending_len = 0;
+    rover->tx_pending_pos = 0;
+    return true;
+}
+
+static bool send_frame_to_rover(rover_conn_t *rover, int rover_index, const uint8_t *data, size_t len)
+{
+    if (!flush_rover_pending(rover, rover_index)) {
+        if (rover->state == ROVER_STREAMING) {
+            caster_log_rover_slow_drop(rover_index);
+        }
+        return false;
+    }
+
+    size_t offset = 0;
+    int result = send_bytes_to_rover(rover, rover_index, data, len, &offset);
+    if (result > 0) {
+        return true;
+    }
+
+    if (result < 0 || rover->state != ROVER_STREAMING) {
+        return false;
+    }
+
+    if (offset == 0) {
+        caster_log_rover_slow_drop(rover_index);
+        return false;
+    }
+
+    size_t remaining = len - offset;
+    memcpy(rover->tx_pending, data + offset, remaining);
+    rover->tx_pending_len = remaining;
+    rover->tx_pending_pos = 0;
+    ESP_LOGW(TAG, "Rover %d deferred frame tail, pending=%uB",
+             rover_index, (unsigned)remaining);
     return true;
 }
 
@@ -404,9 +497,18 @@ static bool handle_request(rover_conn_t *rover)
 
 // ─── Close a rover slot ───────────────────────────────────────────────────────
 
-static void close_rover(rover_conn_t *rover, int index)
+static void close_rover(rover_conn_t *rover, int index, rover_close_reason_t reason, int err)
 {
-    ESP_LOGI(TAG, "Rover %d disconnected", index);
+    size_t pending = rover->tx_pending_len > rover->tx_pending_pos
+                   ? rover->tx_pending_len - rover->tx_pending_pos
+                   : 0;
+    if (err != 0) {
+        ESP_LOGW(TAG, "Rover %d disconnected: %s errno=%d pending=%uB",
+                 index, rover_close_reason_text(reason), err, (unsigned)pending);
+    } else {
+        ESP_LOGI(TAG, "Rover %d disconnected: %s pending=%uB",
+                 index, rover_close_reason_text(reason), (unsigned)pending);
+    }
     if (rover->fd >= 0) {
         close(rover->fd);
     }
@@ -414,13 +516,14 @@ static void close_rover(rover_conn_t *rover, int index)
     rover->state  = ROVER_EMPTY;
     rover->rx_pos = 0;
     rover->is_ntrip_v2 = false;
+    rover->tx_pending_len = 0;
+    rover->tx_pending_pos = 0;
 }
 
 // ─── NTRIP Server Task ────────────────────────────────────────────────────────
 
 static void task_ntrip_server(void *arg)
 {
-    ESP_LOGI(TAG, "task_ntrip_server entered");
     memset(&s_diag, 0, sizeof(s_diag));
 
     s_rovers_mutex = xSemaphoreCreateMutex();
@@ -429,29 +532,23 @@ static void task_ntrip_server(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "Rover mutex created");
-
     for (int i = 0; i < MAX_ROVERS; i++) {
         s_rovers[i].fd    = -1;
         s_rovers[i].state = ROVER_EMPTY;
         s_rovers[i].rx_pos = 0;
         s_rovers[i].is_ntrip_v2 = false;
+        s_rovers[i].tx_pending_len = 0;
+        s_rovers[i].tx_pending_pos = 0;
     }
-    ESP_LOGI(TAG, "Initialized %d rover slots", MAX_ROVERS);
-
     int listen_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listen_fd < 0) {
         ESP_LOGE(TAG, "socket() failed: errno=%d", errno);
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "Listener socket created: fd=%d", listen_fd);
-
     int opt = 1;
     if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) != 0) {
         ESP_LOGW(TAG, "setsockopt(SO_REUSEADDR) failed: errno=%d", errno);
-    } else {
-        ESP_LOGI(TAG, "SO_REUSEADDR enabled");
     }
 
     if (!s_cfg.loaded) {
@@ -473,16 +570,12 @@ static void task_ntrip_server(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "bind() succeeded on port %u", (unsigned)s_cfg.port);
-    
     if (listen(listen_fd, MAX_ROVERS) != 0) {
         ESP_LOGE(TAG, "listen() failed: errno=%d", errno);
         close(listen_fd);
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "listen() succeeded, backlog=%d", MAX_ROVERS);
-
     ESP_LOGI(TAG, "NTRIP server listening on port %u, mountpoint /%s",
              (unsigned)s_cfg.port, s_cfg.mountpoint);
 
@@ -522,6 +615,8 @@ static void task_ntrip_server(void *arg)
                         s_rovers[i].fd     = new_fd;
                         s_rovers[i].state  = ROVER_HANDSHAKE;
                         s_rovers[i].rx_pos = 0;
+                        s_rovers[i].tx_pending_len = 0;
+                        s_rovers[i].tx_pending_pos = 0;
                         memset(s_rovers[i].rx_buf, 0, sizeof(s_rovers[i].rx_buf));
                         char ip_str[16];
                         inet_ntop(AF_INET, &cli_addr.sin_addr, ip_str, sizeof(ip_str));
@@ -549,25 +644,31 @@ static void task_ntrip_server(void *arg)
                     int n = recv(r->fd,
                                  r->rx_buf + r->rx_pos,
                                  sizeof(r->rx_buf) - r->rx_pos - 1, 0);
-                    if (n <= 0) { close_rover(r, i); continue; }
+                    if (n <= 0) {
+                        close_rover(r, i,
+                                    n == 0 ? ROVER_CLOSE_PEER_CLOSED : ROVER_CLOSE_RECV_ERROR,
+                                    n == 0 ? 0 : errno);
+                        continue;
+                    }
                     r->rx_pos += n;
                     r->rx_buf[r->rx_pos] = '\0';
                     if (strstr(r->rx_buf, "\r\n\r\n")) {
                         if (handle_request(r)) {
                             r->state = ROVER_STREAMING;
                         } else {
-                            close_rover(r, i);
+                            close_rover(r, i, ROVER_CLOSE_HANDSHAKE_FAILED, 0);
                         }
                     } else if (r->rx_pos >= (int)sizeof(r->rx_buf) - 1) {
-                        ESP_LOGW(TAG, "Rover %d request too large", i);
-                        close_rover(r, i);
+                        close_rover(r, i, ROVER_CLOSE_REQUEST_TOO_LARGE, 0);
                     }
                 } else if (r->state == ROVER_STREAMING) {
                     // Incoming GGA from rover (for VRS future use) — drain cleanly
                     uint8_t tmp[64];
                     int n = recv(r->fd, tmp, sizeof(tmp), MSG_DONTWAIT);
                     if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-                        close_rover(r, i);
+                        close_rover(r, i,
+                                    n == 0 ? ROVER_CLOSE_PEER_CLOSED : ROVER_CLOSE_RECV_ERROR,
+                                    n == 0 ? 0 : errno);
                     }
                 }
             }
@@ -594,9 +695,6 @@ void ntrip_caster_init(void)
 {
     uint8_t enabled = 0;
     esp_err_t err = cfg_get_u8(KEY_CONFIG_CASTER_ACTIVE, &enabled);
-    ESP_LOGI(TAG, "ntrip_caster_init entered");
-    ESP_LOGI(TAG, "cfg_get_u8(%s) -> %s, enabled=%u",
-             KEY_CONFIG_CASTER_ACTIVE, esp_err_to_name(err), (unsigned)enabled);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read caster enable flag");
         return;
@@ -616,15 +714,12 @@ void ntrip_caster_init(void)
         ESP_LOGE(TAG, "Failed to create caster queue");
         return;
     }
-    ESP_LOGI(TAG, "Caster queue created: depth=%d", FRAME_QUEUE_DEPTH);
-
     BaseType_t created = xTaskCreatePinnedToCore(task_ntrip_server, "ntrip_srv",
                                                  NTRIP_CASTER_TASK_STACK_SIZE, NULL,
                                                  NTRIP_CASTER_TASK_PRIORITY, NULL,
                                                  NTRIP_CASTER_TASK_CORE);
-    ESP_LOGI(TAG, "xTaskCreatePinnedToCore(ntrip_srv) -> %s",
-             created == pdPASS ? "pdPASS" : "pdFAIL");
     if (created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create NTRIP caster task");
         vQueueDelete(s_q_ntrip_caster);
         s_q_ntrip_caster = NULL;
     }

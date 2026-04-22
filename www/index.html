@@ -87,6 +87,14 @@
             max-width: 5.5rem;
             flex: 0 0 5.5rem;
         }
+
+        .ota-file-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
     </style>
     <script>
         const releases_api_url = 'https://api.github.com/repos/B0rader0/RTKBase/releases';
@@ -158,6 +166,7 @@
                 e.stopPropagation();
 
                 if (form[0].checkValidity() !== false) {
+                    syncTimeZoneValue();
                     var submit = form.find(':submit').prop('disabled', true);
                     var data = JSON.stringify($(this).serializeObject());
                     $.post('config', data).done(function() {
@@ -217,6 +226,50 @@
             form.find(":input").on('change', checkDisableIfs);
 
             const projectVersionText = $('#project-version');
+            var timeZonePresetSelect = form.find('.timezone-preset');
+            var timeZoneCustomInput = form.find('.timezone-custom');
+            var timeZoneCustomWrap = form.find('.timezone-custom-wrap');
+            var timeZoneValueInput = form.find('input[name="time_tz"]');
+
+            var syncTimeZoneValue = function() {
+                if (timeZonePresetSelect.val() === 'custom') {
+                    timeZoneValueInput.val(timeZoneCustomInput.val());
+                } else {
+                    timeZoneValueInput.val(timeZonePresetSelect.val());
+                }
+            };
+
+            var setTimeZoneControlsFromValue = function(value) {
+                var matchingOption = timeZonePresetSelect.find('option').filter(function() {
+                    return this.value === value;
+                });
+
+                if (matchingOption.length > 0) {
+                    timeZonePresetSelect.val(value);
+                    timeZoneCustomInput.val('');
+                } else {
+                    timeZonePresetSelect.val('custom');
+                    timeZoneCustomInput.val(value || '');
+                }
+
+                updateTimeZoneCustomState();
+                syncTimeZoneValue();
+            };
+
+            var updateTimeZoneCustomState = function() {
+                var custom = timeZonePresetSelect.val() === 'custom';
+                timeZoneCustomWrap.toggle(custom);
+                timeZoneCustomInput.prop('disabled', !custom);
+                timeZoneCustomInput.prop('required', custom);
+            };
+
+            timeZonePresetSelect.on('change', function() {
+                updateTimeZoneCustomState();
+                syncTimeZoneValue();
+            });
+
+            timeZoneCustomInput.on('input change', syncTimeZoneValue);
+            setTimeZoneControlsFromValue(timeZoneValueInput.val() || timeZonePresetSelect.val());
 
             $.getJSON('config').done(function(data) {
                 projectVersionText.text(data.version);
@@ -293,6 +346,7 @@
                 });
 
                 checkDisableIfs();
+                setTimeZoneControlsFromValue(timeZoneValueInput.val());
             });
 
             var wifiRssiColorClass = function(rssi) {
@@ -310,6 +364,7 @@
             var deviceUptimeText = $('footer .uptime');
             var deviceHeapText = $('footer .heap');
             var baseStationUptimeText = form.find('.base-station-uptime');
+            var baseStationTimeText = form.find('.base-station-time');
             var baseStationResetText = form.find('.base-station-reset');
             var baseStationHeapText = form.find('.base-station-heap');
             var baseStationFirmwareText = form.find('.base-station-firmware');
@@ -320,9 +375,9 @@
             var otaFirmwareButton = form.find('.ota-firmware-upload');
             var otaWwwButton = form.find('.ota-www-upload');
             var otaRestartButton = form.find('.ota-restart');
-            var otaStatusText = form.find('.ota-status');
-            var otaFirmwareLastText = form.find('.ota-firmware-last');
-            var otaWwwLastText = form.find('.ota-www-last');
+            var otaFirmwareStatusText = form.find('.ota-firmware-status');
+            var otaWwwStatusText = form.find('.ota-www-status');
+            var otaRestartStatusText = form.find('.ota-restart-status');
             var otaBusy = false;
             var otaNonUploadControls = otaFirmwareInput
                 .add(otaWwwInput)
@@ -404,6 +459,17 @@
                     var uptimeText = secondsToUptime(data.uptime);
                     deviceUptimeText.text(uptimeText);
                     baseStationUptimeText.text(uptimeText);
+                    if (data.time && data.time.valid) {
+                        baseStationTimeText
+                            .removeClass('text-warning')
+                            .addClass('text-success')
+                            .text(data.time.local);
+                    } else {
+                        baseStationTimeText
+                            .removeClass('text-success')
+                            .addClass('text-warning')
+                            .text('not synchronized');
+                    }
                     baseStationResetText.text(data.reset_reason || "UNKNOWN");
 
                     // Heap
@@ -571,22 +637,18 @@
             };
             statusUpdate();
 
-            var updateOtaLastLabels = function() {
-                otaFirmwareLastText.text(localStorage.getItem('otaFirmwareFile') || 'none');
-                otaWwwLastText.text(localStorage.getItem('otaWwwFile') || 'none');
-            };
-
-            var setOtaStatus = function(text, success) {
-                otaStatusText
+            var setOtaStatus = function(statusText, text, success) {
+                statusText
                     .toggleClass('text-success', success === true)
                     .toggleClass('text-danger', success === false)
+                    .toggleClass('text-muted', success !== true && success !== false)
                     .text(text);
             };
 
             var updateOtaControls = function() {
                 otaNonUploadControls.prop('disabled', otaBusy);
-                otaFirmwareButton.prop('disabled', otaBusy || !otaFirmwareInput[0].files[0]);
-                otaWwwButton.prop('disabled', otaBusy || !otaWwwInput[0].files[0]);
+                otaFirmwareButton.prop('disabled', otaBusy);
+                otaWwwButton.prop('disabled', otaBusy);
             };
 
             var setOtaBusy = function(busy) {
@@ -594,17 +656,15 @@
                 updateOtaControls();
             };
 
-            var uploadOtaFile = function(input, button, url, storageKey, label) {
+            var uploadOtaFile = function(input, url, statusText, label) {
                 var file = input[0].files[0];
                 if (!file) {
-                    setOtaStatus('Select a ' + label + ' file first.', false);
+                    setOtaStatus(statusText, '', null);
                     return;
                 }
 
-                localStorage.setItem(storageKey, file.name);
-                updateOtaLastLabels();
                 setOtaBusy(true);
-                setOtaStatus('Uploading ' + label + ' (' + file.name + ')...', null);
+                setOtaStatus(statusText, 'Uploading ' + file.name + '...', null);
 
                 $.ajax({
                     url: url,
@@ -615,53 +675,45 @@
                     timeout: 120000
                 }).done(function(data) {
                     if (data && data.success) {
-                        setOtaStatus(data.message || (label + ' uploaded.'), true);
+                        setOtaStatus(statusText, file.name + ' uploaded.', true);
                     } else {
-                        setOtaStatus((data && data.message) || (label + ' upload failed.'), false);
+                        setOtaStatus(statusText, (data && data.message) || (label + ' upload failed.'), false);
                     }
                 }).fail(function(xhr) {
-                    setOtaStatus(label + ' upload failed: ' + (xhr.responseText || xhr.statusText), false);
+                    setOtaStatus(statusText, label + ' upload failed: ' + (xhr.responseText || xhr.statusText), false);
                 }).always(function() {
+                    input.val('');
                     setOtaBusy(false);
                 });
             };
 
-            updateOtaLastLabels();
             updateOtaControls();
 
             otaFirmwareInput.on('change', function() {
-                if (this.files[0]) {
-                    localStorage.setItem('otaFirmwareFile', this.files[0].name);
-                    $(this).next('.custom-file-label').text(this.files[0].name);
-                    updateOtaLastLabels();
-                }
-                updateOtaControls();
+                uploadOtaFile(otaFirmwareInput, 'ota/firmware', otaFirmwareStatusText, 'Firmware image');
             });
 
             otaWwwInput.on('change', function() {
-                if (this.files[0]) {
-                    localStorage.setItem('otaWwwFile', this.files[0].name);
-                    $(this).next('.custom-file-label').text(this.files[0].name);
-                    updateOtaLastLabels();
-                }
-                updateOtaControls();
+                uploadOtaFile(otaWwwInput, 'ota/www', otaWwwStatusText, 'Web GUI image');
             });
 
             otaFirmwareButton.on('click', function() {
-                uploadOtaFile(otaFirmwareInput, otaFirmwareButton, 'ota/firmware', 'otaFirmwareFile', 'firmware image');
+                if (otaBusy) return;
+                otaFirmwareInput.val('').trigger('click');
             });
 
             otaWwwButton.on('click', function() {
-                uploadOtaFile(otaWwwInput, otaWwwButton, 'ota/www', 'otaWwwFile', 'web image');
+                if (otaBusy) return;
+                otaWwwInput.val('').trigger('click');
             });
 
             otaRestartButton.on('click', function() {
                 setOtaBusy(true);
-                setOtaStatus('Restarting...', null);
+                setOtaStatus(otaRestartStatusText, 'Restarting...', null);
                 $.post('ota/restart').done(function() {
                     waitForRestartAndReload();
                 }).fail(function(xhr) {
-                    setOtaStatus('Restart request failed: ' + (xhr.responseText || xhr.statusText), false);
+                    setOtaStatus(otaRestartStatusText, 'Restart request failed: ' + (xhr.responseText || xhr.statusText), false);
                     setOtaBusy(false);
                 });
             });
@@ -995,55 +1047,19 @@
                             <div class="form-row mb-2">
                                 <div class="col">
                                     <label class="font-weight-bold">Software update</label>
-                                    <small class="form-text text-muted">Firmware and web image uploads use the same access rules as this Admin page. The saved paths are only copyable reminders; browsers do not allow web pages to pre-fill file pickers.</small>
+                                    <small class="form-text text-muted">Firmware and web image uploads use the same access rules as this Admin page. Choose a file and the upload starts immediately.</small>
                                 </div>
                             </div>
                             <div class="form-row mb-3">
+                                <div class="col-md-6 mb-3 mb-md-0">
+                                    <input type="file" class="ota-firmware-file ota-file-input" accept=".bin,application/octet-stream">
+                                    <button type="button" class="ota-firmware-upload btn btn-outline-primary btn-block">Upload firmware .bin</button>
+                                    <small class="ota-firmware-status form-text text-muted">Select RTKBase.bin to update firmware.</small>
+                                </div>
                                 <div class="col-md-6">
-                                    <label>Firmware image path</label>
-                                    <input type="text" name="ota_fw_path" class="form-control" maxlength="192" placeholder="build/RTKBase.bin">
-                                </div>
-                                <div class="col-md-6">
-                                    <label>Web image path</label>
-                                    <input type="text" name="ota_www_path" class="form-control" maxlength="192" placeholder="build/www.bin">
-                                </div>
-                            </div>
-                            <div class="form-row mb-3">
-                                <div class="col-12">
-                                    <label>Firmware image</label>
-                                </div>
-                                <div class="col-md-7">
-                                    <div class="custom-file">
-                                        <input type="file" class="custom-file-input ota-firmware-file" id="ota-firmware-file">
-                                        <label class="custom-file-label" for="ota-firmware-file">Choose firmware .bin</label>
-                                    </div>
-                                </div>
-                                <div class="col-md-5">
-                                    <button type="button" class="ota-firmware-upload btn btn-outline-primary btn-block" disabled>Upload firmware</button>
-                                </div>
-                                <div class="col-12">
-                                    <small class="text-muted">
-                                        Last selected file: <span class="ota-firmware-last">none</span>
-                                    </small>
-                                </div>
-                            </div>
-                            <div class="form-row mb-3">
-                                <div class="col-12">
-                                    <label>Web files image</label>
-                                </div>
-                                <div class="col-md-7">
-                                    <div class="custom-file">
-                                        <input type="file" class="custom-file-input ota-www-file" id="ota-www-file">
-                                        <label class="custom-file-label" for="ota-www-file">Choose web .bin</label>
-                                    </div>
-                                </div>
-                                <div class="col-md-5">
-                                    <button type="button" class="ota-www-upload btn btn-outline-primary btn-block" disabled>Upload web</button>
-                                </div>
-                                <div class="col-12">
-                                    <small class="text-muted">
-                                        Last selected file: <span class="ota-www-last">none</span>
-                                    </small>
+                                    <input type="file" class="ota-www-file ota-file-input" accept=".bin,application/octet-stream">
+                                    <button type="button" class="ota-www-upload btn btn-outline-primary btn-block">Upload web GUI .bin</button>
+                                    <small class="ota-www-status form-text text-muted">Select www.bin to update web interface.</small>
                                 </div>
                             </div>
                             <div class="form-row justify-content-center">
@@ -1051,7 +1067,7 @@
                                     <button type="button" class="ota-restart btn btn-outline-danger btn-block">Restart after update</button>
                                 </div>
                                 <div class="col-12 text-center mt-2">
-                                    <small class="ota-status text-muted"></small>
+                                    <small class="ota-restart-status text-muted">Restart to activate uploaded updates.</small>
                                 </div>
                             </div>
                         </div>
@@ -1249,6 +1265,31 @@
                                         <input type="text" name="host_name" class="form-control" maxlength="32" required>
                                     </div>
                                 </div>
+                                <div class="col">
+                                    <label>Time zone</label>
+                                    <input type="hidden" name="time_tz" required>
+                                    <select class="custom-select timezone-preset">
+                                        <option value="UTC0">UTC</option>
+                                        <option value="CET-1CEST,M3.5.0/2,M10.5.0/3" selected>Central Europe (Berlin/Paris/Rome)</option>
+                                        <option value="GMT0BST,M3.5.0/1,M10.5.0">UK / Ireland</option>
+                                        <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Eastern Europe</option>
+                                        <option value="EST5EDT,M3.2.0/2,M11.1.0/2">US Eastern</option>
+                                        <option value="CST6CDT,M3.2.0/2,M11.1.0/2">US Central</option>
+                                        <option value="MST7MDT,M3.2.0/2,M11.1.0/2">US Mountain</option>
+                                        <option value="PST8PDT,M3.2.0/2,M11.1.0/2">US Pacific</option>
+                                        <option value="MST7">US Arizona / Mountain no DST</option>
+                                        <option value="JST-9">Japan / Korea</option>
+                                        <option value="CST-8">China / Singapore</option>
+                                        <option value="IST-5:30">India</option>
+                                        <option value="AEST-10AEDT,M10.1.0/2,M4.1.0/3">Australia Eastern</option>
+                                        <option value="NZST-12NZDT,M9.5.0/2,M4.1.0/3">New Zealand</option>
+                                        <option value="custom">Custom POSIX TZ</option>
+                                    </select>
+                                    <div class="timezone-custom-wrap mt-2" style="display: none">
+                                        <input type="text" class="form-control timezone-custom" maxlength="64" placeholder="CET-1CEST,M3.5.0/2,M10.5.0/3">
+                                    </div>
+                                    <small class="form-text text-muted">Choose a common region, or use Custom for a POSIX TZ string.</small>
+                                </div>
                             </div>
                             <div class="form-row">
                                 <div class="col">
@@ -1256,6 +1297,7 @@
                                         Firmware <span class="base-station-firmware">loading...</span>
                                         / 
                                         Uptime <span class="base-station-uptime">loading...</span>
+                                        / Time <span class="base-station-time">loading...</span>
                                         / Reset <span class="base-station-reset">loading...</span>
                                         / Heap <span class="base-station-heap">loading...</span>
                                     </small>

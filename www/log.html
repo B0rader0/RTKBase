@@ -22,7 +22,7 @@
             var table = $("#table");
             var tbody = table.find('tbody');
 
-            var regex = /(?<level>[VDIWER]) \((?<time>[\d:.]+)\) (?<tag>[a-zA-Z0-9_-]+): ?(?<comment>.*)/;
+            var regex = /(?<level>[VDIWER]) \((?<time>[^)]+)\) (?<tag>[a-zA-Z0-9_-]+): ?(?<comment>.*)/;
 
             var update = function() {
                 // Don't reload if another page is open
@@ -77,7 +77,7 @@
 
                         var row = $("<tr></tr>")
                             .append($("<td>" + index++ + "</td>"))
-                            .append($("<td>" + match.groups.time + "ms</td>"))
+                            .append($("<td>" + match.groups.time + "</td>"))
                             .append($("<td></td>").append(levelBadge))
                             .append($("<td>" + match.groups.tag + "</td>"))
                             .append($("<td>" + match.groups.comment + "</td>"));
@@ -101,7 +101,7 @@
     <div class="container-fluid">
         <div class="pt-5 text-center">
             <h2>RTK Base Log</h2>
-            <p class="lead">Recent warning and error logs are loaded automatically below. Make sure that you have at most one log page open at a time.</p>
+            <p class="lead">Recent diagnostic logs are loaded automatically below. Make sure that you have at most one log page open at a time.</p>
         </div>
         <div class="row">
             <table id="table" class="table table-sm">
@@ -118,6 +118,16 @@
 
                 </tbody>
             </table>
+        </div>
+        <div class="border-top pt-3 text-center mb-3">
+            <small class="text-muted mr-2">Tools:</small>
+            <a href="/" class="mr-3">Home</a>
+            <a href="/config" class="mr-3">Config JSON</a>
+            <a href="/status" class="mr-3">Status JSON</a>
+            <a href="/gnss.html" class="mr-3">GNSS Console</a>
+            <a href="/log" class="mr-3">Log Text</a>
+            <a href="/log.html" class="mr-3">Log Viewer</a>
+            <a href="/core_dump">Core Dump</a>
         </div>
     </div>
     <div class="modal fade" id="reload-modal" tabindex="-1" role="dialog">

@@ -1,7 +1,8 @@
 /*
- * Inspired by the ESP32-XBee distribution (https://github.com/nebkat/esp32-xbee).
- * Manages the confiuration of the RTK Base device.
+ * SPDX-License-Identifier: GPL-3.0-only
  *
+ * RTKBase configuration implementation, inspired by the ESP32-XBee project:
+ * https://github.com/nebkat/esp32-xbee
  */
 
 #include <stdbool.h>
@@ -142,14 +143,9 @@ const config_item_t CONFIG_ITEMS[] = {
         .def.str = ""
     },
     {
-        .key = KEY_CONFIG_OTA_FIRMWARE_PATH,
+        .key = KEY_CONFIG_TIMEZONE,
         .type = TYPE_CFG_ITEM_STR,
-        .def.str = "build/RTKBase.bin"
-    },
-    {
-        .key = KEY_CONFIG_OTA_WWW_PATH,
-        .type = TYPE_CFG_ITEM_STR,
-        .def.str = "build/www.bin"
+        .def.str = "CET-1CEST,M3.5.0/2,M10.5.0/3"
     },
      {
         .key = KEY_CONFIG_STATION_HOSTNAME,

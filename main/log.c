@@ -40,7 +40,53 @@ static const char *skip_ansi_escape(const char *text)
 static bool should_store_line(const char *line)
 {
     line = skip_ansi_escape(line);
-    return (line[0] == 'W' || line[0] == 'E') && line[1] == ' ';
+    if ((line[0] == 'W' || line[0] == 'E') && line[1] == ' ') {
+        return true;
+    }
+
+    if (line[0] != 'I' || line[1] != ' ') {
+        return false;
+    }
+
+    if (strstr(line, " MAIN: Reset reason:") != NULL ||
+        strstr(line, " MAIN: OTA image marked valid") != NULL) {
+        return true;
+    }
+
+    if (strstr(line, " TIME: Time synchronized:") != NULL) {
+        return true;
+    }
+
+    if (strstr(line, " WIFI: IP_EVENT_STA_GOT_IP:") != NULL ||
+        strstr(line, " WIFI: IP_EVENT_STA_LOST_IP") != NULL ||
+        strstr(line, " WIFI: WIFI_EVENT_STA_DISCONNECTED:") != NULL ||
+        strstr(line, " WIFI: WIFI_EVENT_AP_STACONNECTED:") != NULL ||
+        strstr(line, " WIFI: WIFI_EVENT_AP_STADISCONNECTED:") != NULL ||
+        strstr(line, " WIFI: IP_EVENT_AP_STAIPASSIGNED:") != NULL) {
+        return true;
+    }
+
+    if (strstr(line, " TCP_SERVER: [sock=") != NULL &&
+        (strstr(line, "Connection accepted") != NULL ||
+         strstr(line, "Connection closed by peer") != NULL ||
+         strstr(line, "Client disconnected by web request") != NULL)) {
+        return true;
+    }
+
+    if (strstr(line, " NTRIP_CASTER: NTRIP server listening") != NULL ||
+        (strstr(line, " NTRIP_CASTER: Rover ") != NULL &&
+         (strstr(line, " connecting from ") != NULL ||
+          strstr(line, " accepted on ") != NULL ||
+          strstr(line, " disconnected: ") != NULL))) {
+        return true;
+    }
+
+    if (strstr(line, " NTRIP_CLIENT: [") != NULL &&
+        strstr(line, " Connected to ") != NULL) {
+        return true;
+    }
+
+    return false;
 }
 
 static char strip_ansi_escape(const char **cursor)

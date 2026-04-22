@@ -54,8 +54,7 @@ typedef struct config_item
 #define KEY_CONFIG_ADMIN_USERNAME   "adm_user"
 #define KEY_CONFIG_ADMIN_PASSWORD   "adm_pass"
 #define KEY_CONFIG_ADMIN_AUTH       "adm_auth"
-#define KEY_CONFIG_OTA_FIRMWARE_PATH "ota_fw_path"
-#define KEY_CONFIG_OTA_WWW_PATH      "ota_www_path"
+#define KEY_CONFIG_TIMEZONE          "time_tz"
 
 // NTRIP Client1 - parameters for the remote server to which this device will connect as a client and forward the RTCM data  you have an existing NTRIP caster/server infrastructure and want to integrate this RTK base station into it as a data source.
 #define KEY_CONFIG_NTRIP1_ACTIVE     "ntrip1_active"

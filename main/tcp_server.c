@@ -352,8 +352,6 @@ static void task_tcp_server(void *pvParameters)
         log_socket_error(listening_socket, errno, "Unable to create socket");
         goto error;
     }
-    ESP_LOGI(TAG, "Listener socket created");
-
     int opt = 1;
     if (setsockopt(listening_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) != 0) {
         log_socket_error(listening_socket, errno, "Unable to set SO_REUSEADDR");
@@ -370,9 +368,6 @@ static void task_tcp_server(void *pvParameters)
         log_socket_error(listening_socket, errno, "Unable to set socket non blocking");
         goto error;
     }
-    ESP_LOGI(TAG, "Socket marked as non blocking");
-
-
     uint16_t sin_p;
     cfg_get_u16(KEY_CONFIG_TCP_SERVER_PORT, &sin_p);
 
@@ -387,8 +382,6 @@ static void task_tcp_server(void *pvParameters)
         log_socket_error(listening_socket, errno, "Socket unable to bind");
         goto error;
     }
-    ESP_LOGI(TAG, "Socket bound on %s:%d", inet_ntoa(srv.sin_addr), sin_p);
-    
     // Single-client server; allow a small pending backlog for reconnect races.
     err = listen(listening_socket, 2);
     if (err != 0) {
@@ -483,7 +476,6 @@ static void task_tcp_server(void *pvParameters)
                     log_socket_error(client_socket, errno, "Unable to set socket non blocking");
                     goto error;
                 }
-                ESP_LOGI(TAG, "[sock=%d]: Socket marked as non blocking", client_socket);
             }
         }
 

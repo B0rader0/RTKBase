@@ -1,18 +1,13 @@
 /*
- * This file is part of the ESP32-XBee distribution (https://github.com/nebkat/esp32-xbee).
+ * SPDX-License-Identifier: GPL-3.0-only
+ *
+ * Derived from the ESP32-XBee project:
+ * https://github.com/nebkat/esp32-xbee
+ *
+ * Original work:
  * Copyright (c) 2019 Nebojsa Cvetkovic.
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, version 3.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * Modified for RTKBase.
  */
 
 #include <esp_http_server.h>
@@ -45,6 +40,7 @@
 #include "ntrip_client.h"
 #include "ntrip_caster.h"
 #include "tcp_server.h"
+#include "time_sync.h"
 
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -142,19 +138,8 @@ static esp_err_t www_spiffs_init() {
    ESP_LOGI(TAG, "SPIFFS: total=%d bytes, used=%d bytes (%.1f%%)", 
              total, used, (used * 100.0) / total);
     
-    // List files in SPIFFS
     DIR *dir = opendir(WWW_PARTITION_PATH);
     if (dir) {
-        ESP_LOGI(TAG, "Files in %s:", WWW_PARTITION_PATH);
-        struct dirent *entry;
-        while ((entry = readdir(dir)) != NULL) {
-            char full_path[300];
-            snprintf(full_path, sizeof(full_path), "%s/%s", WWW_PARTITION_PATH, entry->d_name);
-            struct stat st;
-            if (stat(full_path, &st) == 0) {
-                ESP_LOGI(TAG, "  - %s (%ld bytes)", entry->d_name, st.st_size);
-            }
-        }
         closedir(dir);
     } else {
         ESP_LOGE(TAG, "Failed to open directory %s", WWW_PARTITION_PATH);
@@ -317,6 +302,29 @@ static esp_err_t log_get_handler(httpd_req_t *req) {
     return err;
 }
 
+static void sanitize_filename_part(char *value, const char *fallback)
+{
+    bool had_output = false;
+
+    for (char *p = value; *p != '\0'; p++) {
+        char c = *p;
+        bool allowed = (c >= 'A' && c <= 'Z') ||
+                       (c >= 'a' && c <= 'z') ||
+                       (c >= '0' && c <= '9') ||
+                       c == '-' || c == '_' || c == '.';
+        if (!allowed) {
+            *p = '_';
+        }
+        if (*p != '_' && *p != '.') {
+            had_output = true;
+        }
+    }
+
+    if (!had_output && fallback != NULL) {
+        strlcpy(value, fallback, strlen(fallback) + 1);
+    }
+}
+
 static esp_err_t core_dump_get_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
@@ -333,21 +341,47 @@ static esp_err_t core_dump_get_handler(httpd_req_t *req) {
     char elf_sha256[7];
     esp_app_get_elf_sha256(elf_sha256, sizeof(elf_sha256)); // new for IDF v5 
 
+    char app_version[33];
+    strlcpy(app_version, app_desc->version, sizeof(app_version));
+    sanitize_filename_part(app_version, "unknown");
+
+    char station_name[33] = "rtkbase";
+    char *configured_name = NULL;
+    if (cfg_get_str(KEY_CONFIG_STATION_HOSTNAME, &configured_name) == ESP_OK &&
+        configured_name != NULL && configured_name[0] != '\0') {
+        strlcpy(station_name, configured_name, sizeof(station_name));
+    }
+    free(configured_name);
+    sanitize_filename_part(station_name, "rtkbase");
+
     time_t t = time(NULL);
     char date[20] = "\0";
     if (t > 315360000l) strftime(date, sizeof(date), "_%F_%T", localtime(&t));
+    sanitize_filename_part(date, NULL);
 
-    char content_disposition[128];
+    char content_disposition[192];
     snprintf(content_disposition, sizeof(content_disposition),
-            "attachment; filename=\"esp32_xbee_%s_core_dump_%s%s.bin\"", app_desc->version, elf_sha256, date);
+            "attachment; filename=\"%s_%s_core_dump_%s%s.elf\"",
+            station_name, app_version, elf_sha256, date);
     httpd_resp_set_hdr(req, "Content-Disposition", content_disposition);
 
-    for (int offset = 0; offset < core_dump_size; offset += BUFFER_SIZE) {
+    for (size_t offset = 0; offset < core_dump_size; offset += BUFFER_SIZE) {
         size_t read = core_dump_size - offset;
         if (read > BUFFER_SIZE) read = BUFFER_SIZE;
 
-        core_dump_read(offset, buffer, read);
-        httpd_resp_send_chunk(req, buffer, read);
+        esp_err_t read_err = core_dump_read(offset, buffer, read);
+        if (read_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to read core dump at offset %u: %s",
+                     (unsigned)offset, esp_err_to_name(read_err));
+            return ESP_FAIL;
+        }
+
+        esp_err_t send_err = httpd_resp_send_chunk(req, buffer, read);
+        if (send_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to send core dump chunk at offset %u: %s",
+                     (unsigned)offset, esp_err_to_name(send_err));
+            return send_err;
+        }
     }
 
     httpd_resp_send_chunk(req, NULL, 0);
@@ -466,8 +500,6 @@ static esp_err_t file_get_handler(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not read file");
         return ESP_FAIL;
     }, "Could not read file %s", file_path)
-
-    ESP_LOGI(TAG, "Sending file %s (%ld bytes)...", file_name, file_stat.st_size);
 
     // Retrieve the pointer to scratch buffer for temporary storage
     size_t length;
@@ -817,6 +849,22 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(root, "uptime_ms", uptime_ms);
     cJSON_AddStringToObject(root, "reset_reason", reset_reason_name(esp_reset_reason()));
 
+    // Local wall time
+    cJSON *time_json = cJSON_AddObjectToObject(root, "time");
+    time_t now = time(NULL);
+    bool time_valid = time_sync_time_valid();
+    cJSON_AddBoolToObject(time_json, "valid", time_valid);
+    cJSON_AddNumberToObject(time_json, "unix", (double)now);
+    if (time_valid) {
+        struct tm local_time;
+        char time_text[32];
+        localtime_r(&now, &local_time);
+        strftime(time_text, sizeof(time_text), "%Y-%m-%d %H:%M:%S", &local_time);
+        cJSON_AddStringToObject(time_json, "local", time_text);
+    } else {
+        cJSON_AddStringToObject(time_json, "local", "not synchronized");
+    }
+
     // Heap
     cJSON *heap = cJSON_AddObjectToObject(root, "heap");
     cJSON_AddNumberToObject(heap, "total", heap_caps_get_total_size(MALLOC_CAP_8BIT));
@@ -887,7 +935,9 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(gnss, "rtcm_frames", gnss_diag.rtcm_frames);
     cJSON_AddNumberToObject(gnss, "last_rtcm_ms", gnss_diag.last_rtcm_ms);
     cJSON_AddNumberToObject(gnss, "last_rtcm_age_ms",
-                             gnss_diag.rtcm_frames > 0 && uptime_ms >= gnss_diag.last_rtcm_ms
+                             gnss_diag.rtcm_frames > 0 &&
+                                 gnss_diag.last_rtcm_ms > 0 &&
+                                 uptime_ms >= gnss_diag.last_rtcm_ms
                                  ? uptime_ms - gnss_diag.last_rtcm_ms
                                  : -1);
     cJSON_AddNumberToObject(gnss, "rtcm_bad_len_count", gnss_diag.rtcm_bad_len_count);

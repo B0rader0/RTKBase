@@ -227,8 +227,8 @@ static void console_push_bytes(const uint8_t *data, size_t len)
 
 static void publish_rtcm_frame(const uint8_t *data, size_t len)
 {
-    rtcm_frame_count++;
     last_rtcm_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    rtcm_frame_count++;
 
     int refs = ntrip_client_active_count() + ntrip_caster_active_count();
 

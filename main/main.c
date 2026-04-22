@@ -5,6 +5,7 @@
 #include <web_server.h>
 #include <core_dump.h>
 #include <log.h>
+#include <time_sync.h>
 #include <stream_stats.h>
 #include <freertos/FreeRTOS.h>
 #include <esp_ota_ops.h>
@@ -40,9 +41,7 @@ void app_main()
 
     esp_reset_reason_t reset_reason = esp_reset_reason();
 
-    ESP_LOGI(TAG, "╔══════════════════════════════════════════════╗");
-    ESP_LOGI(TAG, "║ Reset reason: %-30s "                       "║", reset_reason_name(reset_reason));
-    ESP_LOGI(TAG, "╚══════════════════════════════════════════════╝");
+    ESP_LOGI(TAG, "Reset reason: %s", reset_reason_name(reset_reason));
 
     
     // RTK Base specific code
@@ -51,27 +50,22 @@ void app_main()
     // When the values are later needed, they are read from NVS (where they shoud exist)!
     // Call first, even before the defauld event loop?
     nvs_cfg_init();
+    time_sync_init();
 
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ESP_LOGI(TAG, "esp_event_loop_create_default OK");
 
     // Registers a handler for the BOOT button for resetting the parameters to factory defaults. 
     reset_button_init();
-    ESP_LOGI(TAG, "reset_button_init OK");
     
     stream_stats_init(); // yet another task - Find out what this code does.
     
     net_init();
-    ESP_LOGI(TAG, "net_init OK");
 
     wifi_init();
-    ESP_LOGI(TAG, "wifi_init OK");  //reached and stopped.
     
     //wait_for_ip(); // bug because it blocks until STA is connected, but the device may be configured to only use AP mode, in which case it will never connect to a STA network and hence never get an IP address. The web server should still be accessible in AP mode, so we should not block the main task waiting for an IP address. Instead, the tasks that require an IP address (e.g. socket server, NTRIP client/server) should check for connectivity before trying to use the network, and either wait for connectivity or exit gracefully if it is not available.
-    //ESP_LOGI(TAG, "wait_for_ip OK");
      
     web_server_init(); //Does this start the service?
-    ESP_LOGI(TAG, "web_server_init OK");
 
     // ── Frame pool ────────────────────────────────────────────────────────────
     pool_init();

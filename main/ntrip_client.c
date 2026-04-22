@@ -85,6 +85,27 @@ static void uplink_log_blocked(const ntrip_uplink_t *uplink, size_t remaining)
     }
 }
 
+static void uplink_close_socket(const ntrip_uplink_t *uplink,
+                                int *sock,
+                                const char *reason,
+                                int err)
+{
+    if (*sock < 0) {
+        return;
+    }
+
+    if (err != 0) {
+        ESP_LOGW(TAG, "[%s] reconnecting: %s errno=%d",
+                 uplink->log_name, reason, err);
+    } else {
+        ESP_LOGW(TAG, "[%s] reconnecting: %s", uplink->log_name, reason);
+    }
+
+    close(*sock);
+    *sock = -1;
+    uplink_set_connected(uplink, false);
+}
+
 static void base64_encode_str(const char *input, char *output, size_t out_size)
 {
     size_t written = 0;
@@ -340,29 +361,26 @@ static void task_ntrip_uplink(void *arg)
                 }
 
                 if (sent == 0) {
-                    ESP_LOGW(TAG, "[%s] send() returned 0, reconnecting", uplink->log_name);
                     s_diag.send_fatal_errors[uplink_index(uplink)]++;
+                    uplink_close_socket(uplink, &sock, "send returned 0", 0);
+                    break;
                 } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     if (retries == 0) {
                         uplink_log_blocked(uplink, remaining);
                     }
                     if (++retries > NTRIP_SEND_RETRY_LIMIT) {
-                        ESP_LOGW(TAG, "[%s] send retry limit reached, reconnecting", uplink->log_name);
                         s_diag.send_fatal_errors[uplink_index(uplink)]++;
+                        uplink_close_socket(uplink, &sock,
+                                            "send retry limit reached", 0);
                         break;
                     }
                     vTaskDelay(pdMS_TO_TICKS(NTRIP_SEND_RETRY_MS));
                     continue;
                 } else {
-                    ESP_LOGW(TAG, "[%s] send() error %d, reconnecting",
-                             uplink->log_name, errno);
                     s_diag.send_fatal_errors[uplink_index(uplink)]++;
+                    uplink_close_socket(uplink, &sock, "send error", errno);
+                    break;
                 }
-
-                close(sock);
-                sock = -1;
-                uplink_set_connected(uplink, false);
-                break;
             }
 
             pool_release(f);
@@ -372,16 +390,9 @@ static void task_ntrip_uplink(void *arg)
             uint8_t tmp;
             int n = recv(sock, &tmp, sizeof(tmp), MSG_PEEK | MSG_DONTWAIT);
             if (n == 0) {
-                ESP_LOGW(TAG, "[%s] Caster closed connection", uplink->log_name);
-                close(sock);
-                sock = -1;
-                uplink_set_connected(uplink, false);
+                uplink_close_socket(uplink, &sock, "remote caster closed connection", 0);
             } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                ESP_LOGW(TAG, "[%s] recv() error %d, reconnecting",
-                         uplink->log_name, errno);
-                close(sock);
-                sock = -1;
-                uplink_set_connected(uplink, false);
+                uplink_close_socket(uplink, &sock, "recv error", errno);
             }
         }
     }
