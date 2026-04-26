@@ -369,11 +369,6 @@ const config_item_t CONFIG_ITEMS[] = {
         .def.enabled = false
     },
     {
-        .key = KEY_CONFIG_WIFI_STA_AP_FORWARD,
-        .type = TYPE_CFG_ITEM_BOOL,
-        .def.enabled = false
-    },
-    {
         .key = KEY_CONFIG_WIFI_STA_STATIC,
         .type = TYPE_CFG_ITEM_BOOL,
         .def.enabled = false

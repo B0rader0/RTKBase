@@ -9,7 +9,7 @@
 
 typedef struct {
     uint32_t rtcm_frames;
-    uint32_t last_rtcm_ms;
+    uint64_t last_rtcm_ms;
     uint32_t rtcm_bad_len_count;
     uint32_t rtcm_crc_fail_count;
 } gnss_uart_diag_t;

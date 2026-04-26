@@ -50,7 +50,7 @@ static const uint32_t CRC24Q_POLY = 0x1864CFB;
 static uint32_t rtcm_bad_len_count;
 static uint32_t rtcm_crc_fail_count;
 static uint32_t rtcm_frame_count;
-static uint32_t last_rtcm_ms;
+static uint64_t last_rtcm_ms;
 
 static uint32_t crc24q(const uint8_t *buf, size_t len)
 {
@@ -227,7 +227,7 @@ static void console_push_bytes(const uint8_t *data, size_t len)
 
 static void publish_rtcm_frame(const uint8_t *data, size_t len)
 {
-    last_rtcm_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    last_rtcm_ms = (uint64_t)(esp_timer_get_time() / 1000);
     rtcm_frame_count++;
 
     int refs = ntrip_client_active_count() + ntrip_caster_active_count();

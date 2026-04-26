@@ -15,7 +15,6 @@
 #include <retry.h>
 #include <freertos/event_groups.h>
 #include <esp_netif_ip_addr.h>
-#include <lwip/lwip_napt.h>
 #include "wifi.h"
 #include "nvs_config.h"
 #include "time_sync.h"
@@ -179,15 +178,6 @@ static void handle_sta_auth_mode_change(void *esp_netif, esp_event_base_t base, 
 static void handle_ap_start(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
     ESP_LOGI(TAG, "WIFI_EVENT_AP_START");
 
-    // IP forwarding/NATP
-    bool forward;
-    cfg_get_u8(KEY_CONFIG_WIFI_STA_AP_FORWARD, (uint8_t*) &forward);
-    if (forward) {
-        esp_netif_ip_info_t ip_info_ap;
-        esp_netif_get_ip_info(esp_netif_ap, &ip_info_ap);
-        ip_napt_enable(ip_info_ap.ip.addr, 1);
-    }
-
     ap_active = true;
 }
 
@@ -218,18 +208,6 @@ static void handle_ap_sta_disconnected(void *esp_netif, esp_event_base_t base, i
 
 static void handle_sta_got_ip(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
     const ip_event_got_ip_t *event = (const ip_event_got_ip_t *) event_data;
-
-    // IP forwarding/NATP update AP DHCPS DNS info  
-    bool forward;
-    cfg_get_u8(KEY_CONFIG_WIFI_STA_AP_FORWARD, (uint8_t*) &forward);
-    if (ap_active & forward) {
-        esp_netif_dns_info_t dns_info_sta;
-        ESP_ERROR_CHECK(esp_netif_get_dns_info(esp_netif_sta, ESP_NETIF_DNS_MAIN, &dns_info_sta));
-
-        ESP_ERROR_CHECK(esp_netif_dhcps_stop(esp_netif_ap));
-        ESP_ERROR_CHECK(esp_netif_set_dns_info(esp_netif_ap, ESP_NETIF_DNS_MAIN, &dns_info_sta));
-        ESP_ERROR_CHECK(esp_netif_dhcps_start(esp_netif_ap));
-    }
 
     ESP_LOGI(TAG, "IP_EVENT_STA_GOT_IP: ip: " IPSTR "/%d, gw: " IPSTR,
             IP2STR(&event->ip_info.ip),
@@ -263,7 +241,6 @@ void wait_for_network() {
 // Initialise WiFi according to the configurations (mode, credentials, IP, hostname).
 // Blocks until network is up (STA connected / AP ready).
 void net_init() {
-    uint8_t bool_var; // Used for reading boolean config values from NVS, which are stored as uint8_t (0 or 1)
     wifi_startup_config_t startup = wifi_read_startup_config();
 
     ESP_ERROR_CHECK(esp_netif_init());
@@ -286,13 +263,6 @@ void net_init() {
         
         ip_info_ap.netmask.addr = esp_netif_htonl(0xffffffffu << (32u - subnet));
 
-        // IP forwarding/NATP
-        bool_var = cfg_get_u8_or_default(KEY_CONFIG_WIFI_STA_AP_FORWARD, false);
-        if (bool_var) {
-            uint8_t dhcps_offer = true;
-            ESP_ERROR_CHECK(esp_netif_dhcps_option(esp_netif_ap, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &dhcps_offer, 1));
-        }
-
         ESP_ERROR_CHECK(esp_netif_dhcps_stop(esp_netif_ap));
         ESP_ERROR_CHECK(esp_netif_set_ip_info(esp_netif_ap, &ip_info_ap));
         ESP_ERROR_CHECK(esp_netif_dhcps_start(esp_netif_ap));
@@ -310,7 +280,7 @@ void net_init() {
         free(hostname);
 
         // Static IP configuration
-        bool_var = cfg_get_u8_or_default(KEY_CONFIG_WIFI_STA_STATIC, false);
+        uint8_t bool_var = cfg_get_u8_or_default(KEY_CONFIG_WIFI_STA_STATIC, false);
         if (bool_var) {
             ip_info_sta.ip.addr = cfg_get_u32_or_default(
                     KEY_CONFIG_WIFI_STA_IP,

@@ -558,6 +558,28 @@ static void delayed_restart_task(void *arg)
     esp_restart();
 }
 
+static esp_err_t schedule_restart(const char *task_name)
+{
+    if (restart_scheduled) {
+        return ESP_OK;
+    }
+
+    BaseType_t task_ok = xTaskCreate(
+            delayed_restart_task,
+            task_name,
+            RESTART_TASK_STACK_SIZE,
+            NULL,
+            TASK_PRIORITY_INTERFACE,
+            NULL);
+    if (task_ok != pdPASS) {
+        ESP_LOGE(TAG, "Failed to schedule restart task %s", task_name);
+        return ESP_FAIL;
+    }
+
+    restart_scheduled = true;
+    return ESP_OK;
+}
+
 static esp_err_t config_post_handler(httpd_req_t *req) {
     if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
 
@@ -594,19 +616,8 @@ static esp_err_t config_post_handler(httpd_req_t *req) {
         return response_err;
     }
 
-    if (!restart_scheduled) {
-        BaseType_t task_ok = xTaskCreate(
-                delayed_restart_task,
-                "cfg_restart",
-                RESTART_TASK_STACK_SIZE,
-                NULL,
-                TASK_PRIORITY_INTERFACE,
-                NULL);
-        if (task_ok != pdPASS) {
-            ESP_LOGE(TAG, "Failed to schedule restart after config update");
-            return ESP_FAIL;
-        }
-        restart_scheduled = true;
+    if (schedule_restart("cfg_restart") != ESP_OK) {
+        return ESP_FAIL;
     }
 
     return ESP_OK;
@@ -752,20 +763,56 @@ static esp_err_t ota_restart_post_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "success", true);
     esp_err_t response_err = json_response(req, root);
 
-    if (!restart_scheduled) {
-        xTaskCreatePinnedToCore(
-            delayed_restart_task,
-            "ota_restart",
-            RESTART_TASK_STACK_SIZE,
-            NULL,
-            1,
-            NULL,
-            0
-        );
-        restart_scheduled = true;
+    if (schedule_restart("ota_restart") != ESP_OK) {
+        return ESP_FAIL;
     }
 
     return response_err;
+}
+
+static esp_err_t admin_restart_post_handler(httpd_req_t *req)
+{
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddStringToObject(root, "message", "Restart scheduled.");
+    esp_err_t response_err = json_response(req, root);
+    if (response_err != ESP_OK) {
+        return response_err;
+    }
+
+    if (schedule_restart("admin_restart") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t admin_factory_reset_post_handler(httpd_req_t *req)
+{
+    if (check_auth(req) == ESP_FAIL) return ESP_FAIL;
+
+    esp_err_t erase_err = nvs_flash_erase();
+    if (erase_err != ESP_OK) {
+        ESP_LOGE(TAG, "Factory reset nvs_flash_erase failed: %s", esp_err_to_name(erase_err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Factory reset failed");
+        return ESP_FAIL;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddStringToObject(root, "message", "Factory reset scheduled.");
+    esp_err_t response_err = json_response(req, root);
+    if (response_err != ESP_OK) {
+        return response_err;
+    }
+
+    if (schedule_restart("factory_reset") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
 }
 
 static esp_err_t gnss_command_post_handler(httpd_req_t *req)
@@ -844,9 +891,9 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     cJSON *root = cJSON_CreateObject();
 
     // Uptime / reset
-    uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    uint64_t uptime_ms = (uint64_t)(esp_timer_get_time() / 1000);
     cJSON_AddNumberToObject(root, "uptime", (int)(uptime_ms / 1000));
-    cJSON_AddNumberToObject(root, "uptime_ms", uptime_ms);
+    cJSON_AddNumberToObject(root, "uptime_ms", (double)uptime_ms);
     cJSON_AddStringToObject(root, "reset_reason", reset_reason_name(esp_reset_reason()));
 
     // Local wall time
@@ -933,12 +980,12 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     gnss_uart_get_diagnostics(&gnss_diag);
     cJSON *gnss = cJSON_AddObjectToObject(root, "gnss");
     cJSON_AddNumberToObject(gnss, "rtcm_frames", gnss_diag.rtcm_frames);
-    cJSON_AddNumberToObject(gnss, "last_rtcm_ms", gnss_diag.last_rtcm_ms);
+    cJSON_AddNumberToObject(gnss, "last_rtcm_ms", (double)gnss_diag.last_rtcm_ms);
     cJSON_AddNumberToObject(gnss, "last_rtcm_age_ms",
                              gnss_diag.rtcm_frames > 0 &&
                                  gnss_diag.last_rtcm_ms > 0 &&
                                  uptime_ms >= gnss_diag.last_rtcm_ms
-                                 ? uptime_ms - gnss_diag.last_rtcm_ms
+                                 ? (double)(uptime_ms - gnss_diag.last_rtcm_ms)
                                  : -1);
     cJSON_AddNumberToObject(gnss, "rtcm_bad_len_count", gnss_diag.rtcm_bad_len_count);
     cJSON_AddNumberToObject(gnss, "rtcm_crc_fail_count", gnss_diag.rtcm_crc_fail_count);
@@ -1081,6 +1128,8 @@ static httpd_handle_t web_server_start(void)
         register_uri_handler(server, "/ota/firmware", HTTP_POST, ota_firmware_post_handler);
         register_uri_handler(server, "/ota/www", HTTP_POST, ota_www_post_handler);
         register_uri_handler(server, "/ota/restart", HTTP_POST, ota_restart_post_handler);
+        register_uri_handler(server, "/admin/restart", HTTP_POST, admin_restart_post_handler);
+        register_uri_handler(server, "/admin/factory_reset", HTTP_POST, admin_factory_reset_post_handler);
         register_uri_handler(server, "/gnss/command", HTTP_POST, gnss_command_post_handler);
         register_uri_handler(server, "/gnss/log", HTTP_GET, gnss_log_get_handler);
         register_uri_handler(server, "/gnss/log/clear", HTTP_POST, gnss_log_clear_post_handler);
