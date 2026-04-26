@@ -77,6 +77,30 @@
             margin-bottom: 0;
         }
 
+        .wifi-inline-toggle {
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+            flex-wrap: wrap;
+        }
+
+        .wifi-inline-toggle label {
+            margin-bottom: 0;
+            flex: 0 0 auto;
+        }
+
+        .wifi-inline-toggle .btn-group {
+            flex: 0 0 auto;
+        }
+
+        @media (min-width: 768px) {
+            .wifi-inline-toggle {
+                justify-content: center;
+                flex-wrap: nowrap;
+                gap: .5rem;
+            }
+        }
+
         .uart-flow-input {
             display: flex;
             align-items: center;
@@ -119,6 +143,11 @@
 
         .paired-service-card .card-header {
             min-height: 3.6rem;
+        }
+
+        .tcp-server-diag,
+        .ntrip-caster-diag {
+            white-space: pre-line;
         }
     </style>
     <script>
@@ -549,7 +578,7 @@
                             " / Deferred: " + (diag.send_deferred_events || 0) +
                             " / Fatal: " + (diag.send_fatal_errors || 0) +
                             " / Pending: " + (diag.pending_bytes || 0) + "B" +
-                            " / Queue: " + (diag.queue_fill || 0) + "/" + (diag.queue_depth || 0)
+                            "\nQueue: " + (diag.queue_fill || 0) + "/" + (diag.queue_depth || 0)
                         );
                     } else {
                         tcpServerDiagText.text("");
@@ -584,7 +613,7 @@
                             " / Slow-rover drops: " + (casterDiag.rover_slow_drops || 0) +
                             " / Blocked: " + (casterDiag.rover_block_events || 0) +
                             " / Errors: " + (casterDiag.rover_send_errors || 0) +
-                            " / Queue: " + (casterDiag.queue_fill || 0) + "/" + (casterDiag.queue_depth || 0)
+                            "\nQueue: " + (casterDiag.queue_fill || 0) + "/" + (casterDiag.queue_depth || 0)
                         );
                     } else {
                         ntripCasterDiagText.text("");
@@ -865,8 +894,8 @@
         </div>
         <form class="needs-validation" id="form" novalidate>
             <div class="row mb-1">
-                <div class="col-12 col-xl-6">
-                    <div class="card mb-3">
+                <div class="col-12 col-xl-6 d-flex mb-3">
+                    <div class="card h-100 w-100">
                         <div class="card-header">
                             Base station
                             <small class="base-station-time"></small>
@@ -880,7 +909,7 @@
                                     </div>
                                 </div>
                                 <div class="col">
-                                    <label>Time zone</label>
+                                    <label>Time zone <small class="text-muted" data-toggle="tooltip" title="Choose a common region, or use Custom for a POSIX TZ string.">?</small></label>
                                     <input type="hidden" name="time_tz" required>
                                     <select class="custom-select timezone-preset">
                                         <option value="UTC0">UTC</option>
@@ -902,10 +931,8 @@
                                     <div class="timezone-custom-wrap mt-2" style="display: none">
                                         <input type="text" class="form-control timezone-custom" maxlength="64" placeholder="CET-1CEST,M3.5.0/2,M10.5.0/3">
                                     </div>
-                                    <small class="form-text text-muted">Choose a common region, or use Custom for a POSIX TZ string.</small>
                                 </div>
                             </div>
-                            <hr>
                             <div class="form-row mb-3">
                                 <div class="col-4">
                                     <label>Admin access</label>
@@ -927,8 +954,7 @@
                             </div>
                             <div class="form-row mb-2">
                                 <div class="col">
-                                    <label class="font-weight-bold">Maintenance</label>
-                                    <small class="form-text text-muted">Firmware and web image uploads use the same access rules as this page. Choose a file and the upload starts immediately.</small>
+                                    <label class="font-weight-bold">Maintenance <small class="text-muted" data-toggle="tooltip" title="Firmware and web image uploads use the same access rules as this page. Choose a file and the upload starts immediately.">?</small></label>
                                 </div>
                             </div>
                             <div class="form-row mb-3">
@@ -960,179 +986,8 @@
                         </div>
                     </div>
                 </div>
-                <div class="col-12 col-xl-6">
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            WiFi station
-                            <small class="wifi-sta-status"></small>
-                            <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="w_sta_active" value="1" checked class="custom-control-input" id="switch-wifi-sta">
-                                <label class="custom-control-label" for="switch-wifi-sta"></label>
-                            </div>
-                        </div>
-                        <div class="card-body" data-disable-if="#switch-wifi-sta">
-                            <div class="form-row mb-3">
-                                <div class="col-8">
-                                    <label>SSID</label>
-                                    <div class="input-group">
-                                        <input type="text" name="w_sta_ssid" class="wifi-networks-ssid form-control" maxlength="32" required>
-                                        <div class="input-group-append">
-                                            <button type="button" class="wifi-networks-dropdown btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-toggle="dropdown" disabled></button>
-                                            <div class="wifi-networks dropdown-menu">
-                                                <h6 class="dropdown-header">Open networks</h6>
-                                                <span class="wifi-networks-open">
-                                                </span>
-                                                <h6 class="dropdown-header">Secured networks</h6>
-                                                <span class="wifi-networks-secured">
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div class="input-group-append">
-                                            <button type="button" class="wifi-networks-scan btn btn-outline-secondary">Scan</button>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Password</label>
-                                    <input type="hidden" name="w_sta_pass" class="wifi-networks-pass-empty" value="" disabled>
-                                    <div class="input-group">
-                                        <input type="password" name="w_sta_pass" class="wifi-networks-pass form-control">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="form-row mb-3">
-                                <div class="col-4">
-                                    <label class="d-block">Scan mode <small class="text-muted" data-toggle="tooltip" title="In fast scan mode, WiFi channels are scanned sequentially and a connection is made to the first matching SSID.<br><br>In full (all channel) mode, every channel is scanned and if multiple matching SSIDs are found, the one with the strongest signal is chosen, but the process can be significantly slower.<br><br>This is useful in environments where there are a number of APs with the same SSID covering a large area. If you only have a single AP, fast mode is preferred.">?</small></label>
-                                    <div class="btn-group btn-group-toggle d-flex" data-toggle="buttons">
-                                        <label class="btn btn-outline-secondary">
-                                            <input type="radio" name="w_sta_scan_mode" value="0" checked> Fast
-                                        </label>
-                                        <label class="btn btn-outline-secondary">
-                                            <input type="radio" name="w_sta_scan_mode" value="1"> Full
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="col-8">
-                                    <label class="d-block">IP config <small class="text-muted" data-toggle="tooltip" title="In DHCP mode, IPs will automatically be configured by the network upon successful connection.<br><br>In static mode, the IPs are hardcoded and must be set up correctly for the given WiFi network, but the connection is faster.">?</small></label>
-                                    <div class="btn-group btn-group-toggle d-flex" data-toggle="buttons">
-                                        <label class="btn btn-outline-success">
-                                            <input type="radio" name="w_sta_static" value="0" checked> DHCP
-                                        </label>
-                                        <label class="btn btn-outline-warning">
-                                            <input type="radio" name="w_sta_static" value="1"> Static
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                            <div data-disable-if="input[type='radio'][name='w_sta_static']" data-disable-if-condition="[value=0]:checked" class="form-row mb-3">
-                                <div class="col">
-                                    <label>IP address</label>
-                                    <div class="input-group">
-                                        <input type="number" name="w_sta_ip" value="192" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_ip" value="168" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_ip" value="0" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_ip" value="100" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                    </div>
-                                </div>
-                                <div class="col-7">
-                                    <label>Gateway and subnet</label>
-                                    <div class="input-group">
-                                        <input type="number" name="w_sta_gw" value="192" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_gw" value="168" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_gw" value="4" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_gw" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">/</span>
-                                        </div>
-                                        <select name="w_sta_subnet" class="custom-select px-2" required>
-                                            <option value="8">8</option>
-                                            <option value="9">9</option>
-                                            <option value="10">10</option>
-                                            <option value="11">11</option>
-                                            <option value="12">12</option>
-                                            <option value="13">13</option>
-                                            <option value="14">14</option>
-                                            <option value="15">15</option>
-                                            <option value="16">16</option>
-                                            <option value="17">17</option>
-                                            <option value="18">18</option>
-                                            <option value="19">19</option>
-                                            <option value="20">20</option>
-                                            <option value="21">21</option>
-                                            <option value="22">22</option>
-                                            <option value="23">23</option>
-                                            <option value="24" selected>24</option>
-                                            <option value="25">25</option>
-                                            <option value="26">26</option>
-                                            <option value="27">27</option>
-                                            <option value="28">28</option>
-                                            <option value="29">29</option>
-                                            <option value="30">30</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                            <div data-disable-if="input[type='radio'][name='w_sta_static']" data-disable-if-condition="[value=0]:checked" class="form-row mb-3">
-                                <div class="col">
-                                    <label>DNS</label>
-                                    <div class="input-group">
-                                        <input type="number" name="w_sta_dns_a" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_dns_a" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_dns_a" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_dns_a" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                    </div>
-                                </div>
-                                <div class="col">
-                                    <label>Backup DNS</label>
-                                    <div class="input-group">
-                                        <input type="number" name="w_sta_dns_b" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_dns_b" value="0" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_dns_b" value="0" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                        <div class="input-group-append input-group-prepend">
-                                            <span class="input-group-text px-1">.</span>
-                                        </div>
-                                        <input type="number" name="w_sta_dns_b" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-12 col-xl-6">
-                    <div class="card mb-3">
+                <div class="col-12 col-xl-6 d-flex mb-3">
+                    <div class="card h-100 w-100">
                         <div class="card-header">
                             UART configuration
                             <small class="uart-stats stream-stats" data-stream="uart"></small>
@@ -1251,8 +1106,183 @@
                         </div>
                     </div>
                 </div>
-                <div class="col-12 col-xl-6">
-                    <div class="card mb-3">
+                <div class="col-12 col-xl-6 d-flex mb-3">
+                    <div class="card h-100 w-100">
+                        <div class="card-header">
+                            WiFi station
+                            <small class="wifi-sta-status"></small>
+                            <div class="custom-control custom-switch d-inline float-right">
+                                <input type="checkbox" name="w_sta_active" value="1" checked class="custom-control-input" id="switch-wifi-sta">
+                                <label class="custom-control-label" for="switch-wifi-sta"></label>
+                            </div>
+                        </div>
+                        <div class="card-body" data-disable-if="#switch-wifi-sta">
+                            <div class="form-row mb-3">
+                                <div class="col-8">
+                                    <label>SSID</label>
+                                    <div class="input-group">
+                                        <input type="text" name="w_sta_ssid" class="wifi-networks-ssid form-control" maxlength="32" required>
+                                        <div class="input-group-append">
+                                            <button type="button" class="wifi-networks-dropdown btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-toggle="dropdown" disabled></button>
+                                            <div class="wifi-networks dropdown-menu">
+                                                <h6 class="dropdown-header">Open networks</h6>
+                                                <span class="wifi-networks-open">
+                                                </span>
+                                                <h6 class="dropdown-header">Secured networks</h6>
+                                                <span class="wifi-networks-secured">
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="input-group-append">
+                                            <button type="button" class="wifi-networks-scan btn btn-outline-secondary">Scan</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <label>Password</label>
+                                    <input type="hidden" name="w_sta_pass" class="wifi-networks-pass-empty" value="" disabled>
+                                    <div class="input-group">
+                                        <input type="password" name="w_sta_pass" class="wifi-networks-pass form-control">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-row mb-3">
+                                <div class="col-md-6">
+                                    <div class="wifi-inline-toggle">
+                                        <label>Scan mode <small class="text-muted" data-toggle="tooltip" title="In fast scan mode, WiFi channels are scanned sequentially and a connection is made to the first matching SSID.<br><br>In full (all channel) mode, every channel is scanned and if multiple matching SSIDs are found, the one with the strongest signal is chosen, but the process can be significantly slower.<br><br>This is useful in environments where there are a number of APs with the same SSID covering a large area. If you only have a single AP, fast mode is preferred.">?</small></label>
+                                        <div class="btn-group btn-group-sm btn-group-toggle" data-toggle="buttons">
+                                            <label class="btn btn-outline-secondary">
+                                            <input type="radio" name="w_sta_scan_mode" value="0" checked> Fast
+                                            </label>
+                                            <label class="btn btn-outline-secondary">
+                                            <input type="radio" name="w_sta_scan_mode" value="1"> Full
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="wifi-inline-toggle">
+                                        <label>IP config <small class="text-muted" data-toggle="tooltip" title="In DHCP mode, IPs will automatically be configured by the network upon successful connection.<br><br>In static mode, the IPs are hardcoded and must be set up correctly for the given WiFi network, but the connection is faster.">?</small></label>
+                                        <div class="btn-group btn-group-sm btn-group-toggle" data-toggle="buttons">
+                                            <label class="btn btn-outline-success">
+                                            <input type="radio" name="w_sta_static" value="0" checked> DHCP
+                                            </label>
+                                            <label class="btn btn-outline-warning">
+                                            <input type="radio" name="w_sta_static" value="1"> Static
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div data-disable-if="input[type='radio'][name='w_sta_static']" data-disable-if-condition="[value=0]:checked" class="form-row mb-3">
+                                <div class="col">
+                                    <label>IP address</label>
+                                    <div class="input-group">
+                                        <input type="number" name="w_sta_ip" value="192" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_ip" value="168" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_ip" value="0" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_ip" value="100" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                    </div>
+                                </div>
+                                <div class="col-7">
+                                    <label>Gateway and subnet</label>
+                                    <div class="input-group">
+                                        <input type="number" name="w_sta_gw" value="192" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_gw" value="168" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_gw" value="4" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_gw" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">/</span>
+                                        </div>
+                                        <select name="w_sta_subnet" class="custom-select px-2" required>
+                                            <option value="8">8</option>
+                                            <option value="9">9</option>
+                                            <option value="10">10</option>
+                                            <option value="11">11</option>
+                                            <option value="12">12</option>
+                                            <option value="13">13</option>
+                                            <option value="14">14</option>
+                                            <option value="15">15</option>
+                                            <option value="16">16</option>
+                                            <option value="17">17</option>
+                                            <option value="18">18</option>
+                                            <option value="19">19</option>
+                                            <option value="20">20</option>
+                                            <option value="21">21</option>
+                                            <option value="22">22</option>
+                                            <option value="23">23</option>
+                                            <option value="24" selected>24</option>
+                                            <option value="25">25</option>
+                                            <option value="26">26</option>
+                                            <option value="27">27</option>
+                                            <option value="28">28</option>
+                                            <option value="29">29</option>
+                                            <option value="30">30</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div data-disable-if="input[type='radio'][name='w_sta_static']" data-disable-if-condition="[value=0]:checked" class="form-row mb-3">
+                                <div class="col">
+                                    <label>DNS</label>
+                                    <div class="input-group">
+                                        <input type="number" name="w_sta_dns_a" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_dns_a" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_dns_a" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_dns_a" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <label>Backup DNS</label>
+                                    <div class="input-group">
+                                        <input type="number" name="w_sta_dns_b" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_dns_b" value="0" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_dns_b" value="0" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                        <div class="input-group-append input-group-prepend">
+                                            <span class="input-group-text px-1">.</span>
+                                        </div>
+                                        <input type="number" name="w_sta_dns_b" value="1" maxlength="3" min="0" max="255" required class="form-control text-center px-1">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12 col-xl-6 d-flex mb-3">
+                    <div class="card h-100 w-100">
                         <div class="card-header">
                             WiFi hotspot
                             <small class="wifi-ap-status"></small>
