@@ -103,6 +103,23 @@
             display: block;
             min-height: 1.2em;
         }
+
+        .top-status-strip small {
+            font-size: .95rem;
+            color: #212529;
+        }
+
+        .page-lead {
+            font-size: 1rem;
+        }
+
+        .paired-service-card {
+            height: 100%;
+        }
+
+        .paired-service-card .card-header {
+            min-height: 3.6rem;
+        }
     </style>
     <script>
         $.fn.serializeObject = function() {
@@ -331,12 +348,13 @@
 
             var deviceUptimeText = $('footer .uptime');
             var deviceHeapText = $('footer .heap');
-            var baseStationUptimeText = form.find('.base-station-uptime');
+            var baseStationUptimeText = $('.base-station-uptime');
             var baseStationTimeText = form.find('.base-station-time');
-            var baseStationResetText = form.find('.base-station-reset');
-            var baseStationHeapText = form.find('.base-station-heap');
-            var baseStationRtcmText = form.find('.base-station-rtcm');
-            var baseStationConnectionsText = form.find('.base-station-connections');
+            var baseStationResetText = $('.base-station-reset');
+            var baseStationHeapText = $('.base-station-heap');
+            var wifiSignalText = $('.wifi-signal-status');
+            var baseStationRtcmText = $('.base-station-rtcm');
+            var baseStationConnectionsText = $('.base-station-connections');
             var otaFirmwareInput = form.find('.ota-firmware-file');
             var otaWwwInput = form.find('.ota-www-file');
             var otaFirmwareButton = form.find('.ota-firmware-upload');
@@ -456,7 +474,7 @@
                         var lastRtcmAgeMs = typeof data.gnss.last_rtcm_age_ms === 'number' ? data.gnss.last_rtcm_age_ms : -1;
                         var rtcmFrames = data.gnss.rtcm_frames || 0;
                         var rtcmText = "";
-                        var rtcmClass = "text-muted";
+                        var rtcmClass = "";
 
                         if (rtcmFrames > 0 && lastRtcmAgeMs >= 0) {
                             if (lastRtcmAgeMs < 5000) {
@@ -485,7 +503,6 @@
                     } else {
                         baseStationRtcmText
                             .removeClass('text-success text-warning text-danger text-muted')
-                            .addClass('text-muted')
                             .text("unavailable");
                     }
 
@@ -591,14 +608,24 @@
 
                     if (!wifi.sta.active) {
                         wifiStaStatusText.text("Not Active");
+                        wifiSignalText
+                            .removeClass('text-muted text-primary text-success text-warning text-danger')
+                            .text("not active");
                     } else if (!wifi.sta.connected) {
                         wifiStaStatusText.text("Not Connected");
+                        wifiSignalText
+                            .removeClass('text-muted text-primary text-success text-warning text-danger')
+                            .text("not connected");
                     } else {
                         wifiStaStatusText.appendText(wifi.sta.ssid + (wifi.sta.authmode == 'OPEN' ? " (OPEN)" : ''))
                             .appendText(" / ")
                             .append($('<a>', {text: wifi.sta.ip4, href: 'http://' + wifi.sta.ip4 + '/'}))
                             .appendText(" / ")
                             .append($('<span>', {class: 'text-' + wifiRssiColorClass(wifi.sta.rssi), text: wifi.sta.rssi + "dBm"}));
+                        wifiSignalText
+                            .removeClass('text-muted text-primary text-success text-warning text-danger')
+                            .addClass('text-' + wifiRssiColorClass(wifi.sta.rssi))
+                            .text(wifi.sta.rssi + "dBm");
                     }
                 }).always(function() {
                     setTimeout(statusUpdate, 2500);
@@ -611,7 +638,6 @@
                     .removeClass('font-weight-bold')
                     .toggleClass('text-success', success === true)
                     .toggleClass('text-danger', success === false)
-                    .toggleClass('text-muted', success !== true && success !== false)
                     .text(text);
             };
 
@@ -647,7 +673,7 @@
                     if (data && data.success) {
                         setOtaStatus(statusText, file.name + ' uploaded.', true);
                         setOtaStatus(otaRestartStatusText, 'Update uploaded. Restart device to apply changes.', null);
-                        otaRestartStatusText.removeClass('text-muted').addClass('text-warning font-weight-bold');
+                        otaRestartStatusText.addClass('text-warning font-weight-bold');
                     } else {
                         setOtaStatus(statusText, (data && data.message) || (label + ' upload failed.'), false);
                     }
@@ -825,11 +851,21 @@
     <div class="container">
         <div class="pt-5 text-center">
             <h2><span id="project-name">RTK Base</span> <span id="project-version" class="text-muted small"></span></h2>
-            <p class="lead">Adjust the settings below and then click on "Save and restart". The device will restart with the new settings applied. If you have adjusted WiFi settings the device may be moved onto a new IP address, or require you to reconnect to its access point.</p>
+            <p class="lead page-lead">Adjust the settings below and then click on "Save and restart". The device will restart with the new settings applied. If you have adjusted WiFi settings the device may be moved onto a new IP address, or require you to reconnect to its access point.</p>
+        </div>
+        <div class="row mb-3 top-status-strip">
+            <div class="col-md-8 mx-auto text-center">
+                <small class="d-block">Uptime: <span class="base-station-uptime">loading...</span></small>
+                <small class="d-block">Reset: <span class="base-station-reset">loading...</span></small>
+                <small class="d-block">Heap: <span class="base-station-heap">loading...</span></small>
+                <small class="d-block">WiFi signal: <span class="wifi-signal-status">loading...</span></small>
+                <small class="d-block">GNSS RTCM: <span class="base-station-rtcm">loading...</span></small>
+                <small class="d-block">Connections: <span class="base-station-connections">loading...</span></small>
+            </div>
         </div>
         <form class="needs-validation" id="form" novalidate>
             <div class="row mb-1">
-                <div class="col-xl-6">
+                <div class="col-12 col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
                             Base station
@@ -869,29 +905,6 @@
                                     <small class="form-text text-muted">Choose a common region, or use Custom for a POSIX TZ string.</small>
                                 </div>
                             </div>
-                            <div class="form-row">
-                                <div class="col">
-                                    <small class="text-muted">
-                                        Uptime <span class="base-station-uptime">loading...</span>
-                                        / Reset <span class="base-station-reset">loading...</span>
-                                        / Heap <span class="base-station-heap">loading...</span>
-                                    </small>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="col">
-                                    <small class="text-muted">
-                                        GNSS RTCM: <span class="base-station-rtcm">loading...</span>
-                                    </small>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="col">
-                                    <small class="text-muted">
-                                        Connections: <span class="base-station-connections">loading...</span>
-                                    </small>
-                                </div>
-                            </div>
                             <hr>
                             <div class="form-row mb-3">
                                 <div class="col-4">
@@ -922,32 +935,32 @@
                                 <div class="col-md-6 mb-3 mb-md-0">
                                     <input type="file" class="ota-firmware-file ota-file-input" accept=".bin,application/octet-stream">
                                     <button type="button" class="ota-firmware-upload btn btn-outline-primary btn-block">Upload firmware .bin</button>
-                                    <small class="ota-firmware-status form-text text-muted">Select RTKBase.bin to update firmware.</small>
+                                    <small class="ota-firmware-status form-text">Select RTKBase.bin to update firmware.</small>
                                 </div>
                                 <div class="col-md-6">
                                     <input type="file" class="ota-www-file ota-file-input" accept=".bin,application/octet-stream">
                                     <button type="button" class="ota-www-upload btn btn-outline-primary btn-block">Upload web GUI .bin</button>
-                                    <small class="ota-www-status form-text text-muted">Select www.bin to update web interface.</small>
+                                    <small class="ota-www-status form-text">Select www.bin to update web interface.</small>
                                 </div>
                             </div>
-                            <div class="form-row justify-content-center">
+                            <div class="form-row">
+                                <div class="col-md-6 mb-2 mb-md-0">
+                                    <button type="button" class="factory-reset btn btn-outline-danger btn-block">Factory reset</button>
+                                </div>
                                 <div class="col-md-6">
                                     <button type="button" class="ota-restart btn btn-outline-secondary btn-block">Restart device</button>
                                 </div>
-                                <div class="col-12 text-center mt-2">
-                                    <small class="ota-restart-status text-muted"></small>
+                                <div class="col-md-6 mt-2">
+                                    <small class="factory-reset-status">Erase saved settings and restart with defaults.</small>
                                 </div>
-                            </div>
-                            <div class="form-row justify-content-center mt-2">
-                                <div class="col-md-6">
-                                    <button type="button" class="factory-reset btn btn-outline-danger btn-block">Factory reset</button>
-                                </div>
-                                <div class="col-12 text-center mt-2">
-                                    <small class="factory-reset-status text-muted">Erase saved settings and restart with defaults.</small>
+                                <div class="col-md-6 mt-2">
+                                    <small class="ota-restart-status"></small>
                                 </div>
                             </div>
                         </div>
                     </div>
+                </div>
+                <div class="col-12 col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
                             WiFi station
@@ -1117,6 +1130,8 @@
                             </div>
                         </div>
                     </div>
+                </div>
+                <div class="col-12 col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
                             UART configuration
@@ -1235,37 +1250,8 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            TCP server
-                            <small class="socket-server-stats stream-stats" data-stream="socket_server"></small>
-                            <small class="tcp-server-status text-muted"></small>
-                            <div class="custom-control custom-switch d-inline float-right">
-                                <input type="checkbox" name="tcp_srv_active" value="1" class="custom-control-input" id="switch-socket-server">
-                                <label class="custom-control-label" for="switch-socket-server"></label>
-                            </div>
-                        </div>
-                        <div class="card-body" data-disable-if="#switch-socket-server">
-                            <div class="form-row mb-3">
-                                <div class="col">
-                                    <label>TCP port</label>
-                                    <div class="input-group">
-                                        <input type="number" name="tcp_srv_port" maxlength="5" min="0" max="65535" class="form-control" required>
-                                    </div>
-                                </div>
-                                <div class="col-auto d-flex align-items-end">
-                                    <button type="button" class="tcp-server-disconnect btn btn-outline-danger" disabled>Disconnect client</button>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="col">
-                                    <small class="tcp-server-diag text-muted"></small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
-                <div class="col-xl-6">
+                <div class="col-12 col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
                             WiFi hotspot
@@ -1347,7 +1333,40 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card mb-3">
+                </div>
+                <div class="col-12 col-xl-6">
+                    <div class="card mb-3 paired-service-card">
+                        <div class="card-header">
+                            TCP server
+                            <small class="socket-server-stats stream-stats" data-stream="socket_server"></small>
+                            <small class="tcp-server-status"></small>
+                            <div class="custom-control custom-switch d-inline float-right">
+                                <input type="checkbox" name="tcp_srv_active" value="1" class="custom-control-input" id="switch-socket-server">
+                                <label class="custom-control-label" for="switch-socket-server"></label>
+                            </div>
+                        </div>
+                        <div class="card-body" data-disable-if="#switch-socket-server">
+                            <div class="form-row mb-3">
+                                <div class="col">
+                                    <label>TCP port</label>
+                                    <div class="input-group">
+                                        <input type="number" name="tcp_srv_port" maxlength="5" min="0" max="65535" class="form-control" required>
+                                    </div>
+                                </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <button type="button" class="tcp-server-disconnect btn btn-outline-danger" disabled>Disconnect client</button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="col">
+                                    <small class="tcp-server-diag"></small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12 col-xl-6">
+                    <div class="card mb-3 paired-service-card">
                         <div class="card-header">
                             Local NTRIP caster (serve rovers)
                             <small class="ntrip-caster-stats stream-stats" data-stream="ntrip_caster"></small>
@@ -1385,11 +1404,13 @@
                             </div>
                             <div class="form-row">
                                 <div class="col">
-                                    <small class="ntrip-caster-diag text-muted"></small>
+                                    <small class="ntrip-caster-diag"></small>
                                 </div>
                             </div>
                         </div>
                     </div>
+                </div>
+                <div class="col-12 col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
                             NTRIP uplink 1 (send to caster)
@@ -1434,11 +1455,13 @@
                             </div>
                             <div class="form-row">
                                 <div class="col">
-                                    <small class="ntrip-uplink1-diag text-muted"></small>
+                                    <small class="ntrip-uplink1-diag"></small>
                                 </div>
                             </div>
                         </div>
                     </div>
+                </div>
+                <div class="col-12 col-xl-6">
                     <div class="card mb-3">
                         <div class="card-header">
                             NTRIP uplink 2 (send to caster)
@@ -1483,15 +1506,16 @@
                             </div>
                             <div class="form-row">
                                 <div class="col">
-                                    <small class="ntrip-uplink2-diag text-muted"></small>
+                                    <small class="ntrip-uplink2-diag"></small>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+                </div>
             </div>
             <div class="row mb-3">
-                <div class="col">
+                <div class="col-md-6 mx-auto">
                     <input type="submit" class="form-control" value="Save and restart">
                 </div>
             </div>
