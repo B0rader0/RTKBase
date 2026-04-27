@@ -472,6 +472,12 @@ static void task_gnss_reader(void *pvParams)
                                         &uart_evt_queue,
                                         0));
 
+    // The GNSS receiver may already be streaming while the ESP32 is still
+    // booting. Start from a clean boundary instead of feeding stale boot-time
+    // bytes into the splitter as soon as the task begins servicing UART.
+    ESP_ERROR_CHECK(uart_flush_input(uart_port));
+    xQueueReset(uart_evt_queue);
+
     ESP_LOGI(TAG, "UART%d ready @ %d baud TX=%d RX=%d (event-driven)",
              uart_port, uart_cfg.baud_rate,
              pin_tx, pin_rx);
@@ -512,7 +518,7 @@ static void task_gnss_reader(void *pvParams)
         }
 
         case UART_FIFO_OVF:
-            ESP_LOGW(TAG, "HW FIFO overflow — bytes lost, resetting splitter");
+            ESP_LOGW(TAG, "HW FIFO overflow - bytes lost, resetting splitter");
             uart_flush_input(uart_port);
             xQueueReset(uart_evt_queue);
             splitter_init(&splitter);

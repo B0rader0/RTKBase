@@ -74,6 +74,100 @@ static uint32_t cfg_get_u32_or_default(const char *key, uint32_t default_value)
     return value;
 }
 
+static const char *wifi_disconnect_reason_name(uint8_t reason)
+{
+    switch (reason) {
+    case WIFI_REASON_UNSPECIFIED:
+        return "UNSPECIFIED";
+    case WIFI_REASON_AUTH_EXPIRE:
+        return "AUTH_EXPIRE";
+    case WIFI_REASON_AUTH_LEAVE:
+        return "AUTH_LEAVE";
+    case WIFI_REASON_ASSOC_EXPIRE:
+        return "ASSOC_EXPIRE";
+    case WIFI_REASON_ASSOC_TOOMANY:
+        return "ASSOC_TOOMANY";
+    case WIFI_REASON_NOT_AUTHED:
+        return "CLASS2_NONAUTH";
+    case WIFI_REASON_NOT_ASSOCED:
+        return "CLASS3_NONASSOC";
+    case WIFI_REASON_ASSOC_LEAVE:
+        return "ASSOC_LEAVE";
+    case WIFI_REASON_ASSOC_NOT_AUTHED:
+        return "ASSOC_NOT_AUTHED";
+    case WIFI_REASON_DISASSOC_PWRCAP_BAD:
+        return "DISASSOC_PWRCAP_BAD";
+    case WIFI_REASON_DISASSOC_SUPCHAN_BAD:
+        return "DISASSOC_SUPCHAN_BAD";
+    case WIFI_REASON_BSS_TRANSITION_DISASSOC:
+        return "BSS_TRANSITION_DISASSOC";
+    case WIFI_REASON_IE_INVALID:
+        return "IE_INVALID";
+    case WIFI_REASON_MIC_FAILURE:
+        return "MIC_FAILURE";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+        return "4WAY_HANDSHAKE_TIMEOUT";
+    case WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT:
+        return "GROUP_KEY_UPDATE_TIMEOUT";
+    case WIFI_REASON_IE_IN_4WAY_DIFFERS:
+        return "IE_IN_4WAY_DIFFERS";
+    case WIFI_REASON_GROUP_CIPHER_INVALID:
+        return "GROUP_CIPHER_INVALID";
+    case WIFI_REASON_PAIRWISE_CIPHER_INVALID:
+        return "PAIRWISE_CIPHER_INVALID";
+    case WIFI_REASON_AKMP_INVALID:
+        return "AKMP_INVALID";
+    case WIFI_REASON_UNSUPP_RSN_IE_VERSION:
+        return "UNSUPP_RSN_IE_VERSION";
+    case WIFI_REASON_INVALID_RSN_IE_CAP:
+        return "INVALID_RSN_IE_CAP";
+    case WIFI_REASON_802_1X_AUTH_FAILED:
+        return "8021X_AUTH_FAILED";
+    case WIFI_REASON_CIPHER_SUITE_REJECTED:
+        return "CIPHER_SUITE_REJECTED";
+    case WIFI_REASON_TIMEOUT:
+        return "TIMEOUT";
+    case WIFI_REASON_PEER_INITIATED:
+        return "PEER_INITIATED";
+    case WIFI_REASON_AP_INITIATED:
+        return "AP_INITIATED";
+    case WIFI_REASON_INVALID_PMKID:
+        return "INVALID_PMKID";
+    case WIFI_REASON_INVALID_MDE:
+        return "INVALID_MDE";
+    case WIFI_REASON_INVALID_FTE:
+        return "INVALID_FTE";
+    case WIFI_REASON_BEACON_TIMEOUT:
+        return "BEACON_TIMEOUT";
+    case WIFI_REASON_NO_AP_FOUND:
+        return "NO_AP_FOUND";
+    case WIFI_REASON_AUTH_FAIL:
+        return "AUTH_FAIL";
+    case WIFI_REASON_ASSOC_FAIL:
+        return "ASSOC_FAIL";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+        return "HANDSHAKE_TIMEOUT";
+    case WIFI_REASON_CONNECTION_FAIL:
+        return "CONNECTION_FAIL";
+    case WIFI_REASON_AP_TSF_RESET:
+        return "AP_TSF_RESET";
+    case WIFI_REASON_ROAMING:
+        return "ROAMING";
+    case WIFI_REASON_ASSOC_COMEBACK_TIME_TOO_LONG:
+        return "ASSOC_COMEBACK_TOO_LONG";
+    case WIFI_REASON_SA_QUERY_TIMEOUT:
+        return "SA_QUERY_TIMEOUT";
+    case WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY:
+        return "NO_AP_COMPAT_SECURITY";
+    case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD:
+        return "NO_AP_AUTHMODE_THRESHOLD";
+    case WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD:
+        return "NO_AP_RSSI_THRESHOLD";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 static wifi_startup_config_t wifi_read_startup_config(void)
 {
     wifi_startup_config_t cfg = {
@@ -137,21 +231,7 @@ static void handle_sta_connected(void *esp_netif, esp_event_base_t base, int32_t
 
 static void handle_sta_disconnected(void *esp_netif, esp_event_base_t base, int32_t event_id, void *event_data) {
     const wifi_event_sta_disconnected_t *event = (const wifi_event_sta_disconnected_t *) event_data;
-    char *reason;
-    switch (event->reason) {
-        case WIFI_REASON_AUTH_EXPIRE:
-        case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
-        case WIFI_REASON_AUTH_FAIL:
-        case WIFI_REASON_ASSOC_EXPIRE:
-        case WIFI_REASON_HANDSHAKE_TIMEOUT:
-            reason = "AUTH";
-            break;
-        case WIFI_REASON_NO_AP_FOUND:
-            reason = "NOT_FOUND";
-            break;
-        default:
-            reason = "UNKNOWN";
-    }
+    const char *reason = wifi_disconnect_reason_name(event->reason);
 
     ESP_LOGI(TAG, "WIFI_EVENT_STA_DISCONNECTED: ssid: %.*s, reason: %d (%s)", event->ssid_len, event->ssid, event->reason, reason);
 
