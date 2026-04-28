@@ -34,7 +34,9 @@
 #include <lwip/sockets.h>
 #include <esp_timer.h>
 #include <esp_heap_caps.h>
+#include <esp_app_format.h>
 #include <freertos/task.h>
+#include <sys/time.h>
 #include "web_server.h"
 #include "gnss_uart.h"
 #include "ntrip_client.h"
@@ -552,6 +554,17 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     return json_response(req, root);
 }
 
+static int recv_upload_chunk(httpd_req_t *req, char *buf, size_t len)
+{
+    while (true) {
+        int received = httpd_req_recv(req, buf, len);
+        if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        return received;
+    }
+}
+
 static void delayed_restart_task(void *arg)
 {
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -656,6 +669,20 @@ static esp_err_t ota_firmware_post_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    int remaining = req->content_len;
+    int received = recv_upload_chunk(req, upload_buf, MIN(remaining, OTA_UPLOAD_BUF_SIZE));
+    if (received <= 0) {
+        free(upload_buf);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to read firmware image");
+        return ESP_FAIL;
+    }
+    if ((uint8_t)upload_buf[0] != ESP_IMAGE_HEADER_MAGIC) {
+        free(upload_buf);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "Selected file does not look like an ESP32 firmware image. Use Upload web GUI .bin for the web image.");
+        return ESP_FAIL;
+    }
+
     esp_ota_handle_t ota_handle = 0;
     esp_err_t err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &ota_handle);
     if (err != ESP_OK) {
@@ -665,13 +692,15 @@ static esp_err_t ota_firmware_post_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    int remaining = req->content_len;
-    while (remaining > 0) {
-        int received = httpd_req_recv(req, upload_buf, MIN(remaining, OTA_UPLOAD_BUF_SIZE));
+    err = esp_ota_write(ota_handle, upload_buf, received);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
+    }
+    remaining -= received;
+
+    while (err == ESP_OK && remaining > 0) {
+        received = recv_upload_chunk(req, upload_buf, MIN(remaining, OTA_UPLOAD_BUF_SIZE));
         if (received <= 0) {
-            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-                continue;
-            }
             err = ESP_FAIL;
             break;
         }
@@ -724,16 +753,36 @@ static esp_err_t ota_www_post_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    esp_err_t err = esp_partition_erase_range(www_partition, 0, www_partition->size);
     int remaining = req->content_len;
+    int received = recv_upload_chunk(req, upload_buf, MIN(remaining, OTA_UPLOAD_BUF_SIZE));
+    if (received <= 0) {
+        free(upload_buf);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to read web image");
+        return ESP_FAIL;
+    }
+    if ((uint8_t)upload_buf[0] == ESP_IMAGE_HEADER_MAGIC) {
+        free(upload_buf);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "Selected file looks like an ESP32 firmware image. Use Upload firmware .bin for app updates.");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = esp_partition_erase_range(www_partition, 0, www_partition->size);
     size_t offset = 0;
 
+    if (err == ESP_OK) {
+        err = esp_partition_write(www_partition, offset, upload_buf, received);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_partition_write(www) failed: %s", esp_err_to_name(err));
+    } else {
+        offset += (size_t)received;
+        remaining -= received;
+    }
+
     while (err == ESP_OK && remaining > 0) {
-        int received = httpd_req_recv(req, upload_buf, MIN(remaining, OTA_UPLOAD_BUF_SIZE));
+        received = recv_upload_chunk(req, upload_buf, MIN(remaining, OTA_UPLOAD_BUF_SIZE));
         if (received <= 0) {
-            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-                continue;
-            }
             err = ESP_FAIL;
             break;
         }
@@ -898,10 +947,14 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
 
     // Local wall time
     cJSON *time_json = cJSON_AddObjectToObject(root, "time");
-    time_t now = time(NULL);
+    struct timeval tv = {0};
+    gettimeofday(&tv, NULL);
+    time_t now = tv.tv_sec;
     bool time_valid = time_sync_time_valid();
     cJSON_AddBoolToObject(time_json, "valid", time_valid);
     cJSON_AddNumberToObject(time_json, "unix", (double)now);
+    cJSON_AddNumberToObject(time_json, "unix_ms",
+                            (double)tv.tv_sec * 1000.0 + (double)tv.tv_usec / 1000.0);
     if (time_valid) {
         struct tm local_time;
         char time_text[32];
@@ -1023,9 +1076,11 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     // WiFi
     wifi_ap_status_t ap_status;
     wifi_sta_status_t sta_status;
+    wifi_sta_diag_t sta_diag;
 
     wifi_ap_status(&ap_status);
     wifi_sta_status(&sta_status);
+    wifi_sta_get_diagnostics(&sta_diag);
 
     cJSON *wifi = cJSON_AddObjectToObject(root, "wifi");
 
@@ -1058,6 +1113,26 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
             snprintf(ip, sizeof(ip), IPV6STR, IPV62STR(sta_status.ip6_addr));
             cJSON_AddStringToObject(sta, "ip6", ip);
         }
+    }
+
+    cJSON *sta_diag_json = cJSON_AddObjectToObject(wifi, "sta_diag");
+    cJSON_AddNumberToObject(sta_diag_json, "connect_count", sta_diag.connect_count);
+    cJSON_AddNumberToObject(sta_diag_json, "disconnect_count", sta_diag.disconnect_count);
+    cJSON_AddNumberToObject(sta_diag_json, "last_disconnect_reason", sta_diag.last_disconnect_reason);
+    cJSON_AddStringToObject(sta_diag_json, "last_disconnect_reason_name", sta_diag.last_disconnect_reason_name);
+    cJSON_AddNumberToObject(sta_diag_json, "last_disconnect_ms", (double)sta_diag.last_disconnect_ms);
+    cJSON_AddNumberToObject(sta_diag_json, "last_disconnect_age_ms",
+                            sta_diag.last_disconnect_ms > 0 && uptime_ms >= sta_diag.last_disconnect_ms
+                                ? (double)(uptime_ms - sta_diag.last_disconnect_ms)
+                                : -1);
+    cJSON_AddNumberToObject(sta_diag_json, "last_rssi", sta_diag.last_rssi);
+    cJSON_AddNumberToObject(sta_diag_json, "last_channel", sta_diag.last_channel);
+    if (sta_diag.last_bssid_valid) {
+        char bssid[18];
+        snprintf(bssid, sizeof(bssid), MACSTR, MAC2STR(sta_diag.last_bssid));
+        cJSON_AddStringToObject(sta_diag_json, "last_bssid", bssid);
+    } else {
+        cJSON_AddStringToObject(sta_diag_json, "last_bssid", "");
     }
 
     return json_response(req, root);

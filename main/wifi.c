@@ -9,6 +9,7 @@
 #include <esp_wifi.h>
 #include <esp_log.h>
 #include <esp_mac.h>   
+#include <esp_timer.h>
 #include <string.h>
 #include <sys/param.h>
 //#include <tasks.h>
@@ -40,6 +41,7 @@ static bool sta_active = false;
 static bool sta_connected;
 static wifi_ap_record_t sta_ap_info;
 static wifi_sta_list_t ap_sta_list;
+static wifi_sta_diag_t sta_diag;
 
 static esp_netif_t *esp_netif_ap;
 static esp_netif_t *esp_netif_sta;
@@ -168,6 +170,14 @@ static const char *wifi_disconnect_reason_name(uint8_t reason)
     }
 }
 
+static void wifi_refresh_sta_ap_info(void)
+{
+    if (esp_wifi_sta_get_ap_info(&sta_ap_info) != ESP_OK) {
+        memset(&sta_ap_info, 0, sizeof(sta_ap_info));
+        memcpy(sta_ap_info.ssid, config_sta.sta.ssid, sizeof(config_sta.sta.ssid));
+    }
+}
+
 static wifi_startup_config_t wifi_read_startup_config(void)
 {
     wifi_startup_config_t cfg = {
@@ -218,6 +228,8 @@ static void handle_sta_connected(void *esp_netif, esp_event_base_t base, int32_t
     ESP_LOGI(TAG, "WIFI_EVENT_STA_CONNECTED: ssid: %.*s", event->ssid_len, event->ssid);
 
     sta_connected = true;
+    sta_diag.connect_count++;
+    wifi_refresh_sta_ap_info();
 
     retry_reset(delay_handle);
 
@@ -233,7 +245,28 @@ static void handle_sta_disconnected(void *esp_netif, esp_event_base_t base, int3
     const wifi_event_sta_disconnected_t *event = (const wifi_event_sta_disconnected_t *) event_data;
     const char *reason = wifi_disconnect_reason_name(event->reason);
 
-    ESP_LOGI(TAG, "WIFI_EVENT_STA_DISCONNECTED: ssid: %.*s, reason: %d (%s)", event->ssid_len, event->ssid, event->reason, reason);
+    sta_diag.disconnect_count++;
+    sta_diag.last_disconnect_reason = event->reason;
+    strlcpy(sta_diag.last_disconnect_reason_name, reason, sizeof(sta_diag.last_disconnect_reason_name));
+    sta_diag.last_disconnect_ms = (uint64_t)(esp_timer_get_time() / 1000);
+    if (sta_ap_info.bssid[0] != 0 || sta_ap_info.bssid[1] != 0 || sta_ap_info.bssid[2] != 0 ||
+        sta_ap_info.bssid[3] != 0 || sta_ap_info.bssid[4] != 0 || sta_ap_info.bssid[5] != 0) {
+        memcpy(sta_diag.last_bssid, sta_ap_info.bssid, sizeof(sta_diag.last_bssid));
+        sta_diag.last_bssid_valid = true;
+    }
+    sta_diag.last_rssi = sta_ap_info.rssi;
+    sta_diag.last_channel = sta_ap_info.primary;
+
+    if (sta_diag.last_bssid_valid) {
+        ESP_LOGI(TAG,
+                 "WIFI_EVENT_STA_DISCONNECTED: ssid: %.*s, reason: %d (%s), rssi: %d dBm, channel: %u, bssid: " MACSTR,
+                 event->ssid_len, event->ssid, event->reason, reason,
+                 sta_diag.last_rssi, sta_diag.last_channel,
+                 MAC2STR(sta_diag.last_bssid));
+    } else {
+        ESP_LOGI(TAG, "WIFI_EVENT_STA_DISCONNECTED: ssid: %.*s, reason: %d (%s)",
+                 event->ssid_len, event->ssid, event->reason, reason);
+    }
 
     sta_connected = false;
 
@@ -527,10 +560,7 @@ void wifi_sta_status(wifi_sta_status_t *status) {
     }
 
     // Refresh the current AP record on demand so the web UI sees live RSSI.
-    if (esp_wifi_sta_get_ap_info(&sta_ap_info) != ESP_OK) {
-        memset(&sta_ap_info, 0, sizeof(sta_ap_info));
-        memcpy(sta_ap_info.ssid, config_sta.sta.ssid, sizeof(config_sta.sta.ssid));
-    }
+    wifi_refresh_sta_ap_info();
 
     memcpy(status->ssid, sta_ap_info.ssid, sizeof(sta_ap_info.ssid));
     status->rssi = sta_ap_info.rssi;
@@ -541,6 +571,15 @@ void wifi_sta_status(wifi_sta_status_t *status) {
     status->ip4_addr = ip_info.ip;
 
     esp_netif_get_ip6_linklocal(esp_netif_sta, &status->ip6_addr);
+}
+
+void wifi_sta_get_diagnostics(wifi_sta_diag_t *diag)
+{
+    if (diag == NULL) {
+        return;
+    }
+
+    *diag = sta_diag;
 }
 
 wifi_ap_record_t *wifi_scan(uint16_t *number) {

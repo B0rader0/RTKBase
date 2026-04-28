@@ -21,8 +21,121 @@
 
             var table = $("#table");
             var tbody = table.find('tbody');
+            var bootUnixMs = null;
 
             var regex = /(?<level>[VDIWER]) \((?<time>[^)]+)\) (?<tag>[a-zA-Z0-9_-]+): ?(?<comment>.*)/;
+
+            var parseLogTimeMs = function(text) {
+                if (typeof text !== 'string') {
+                    return null;
+                }
+
+                var trimmed = text.trim();
+                var hmsMatch = trimmed.match(/^(\d+):(\d{2}):(\d{2})\.(\d{3})(?:ms)?$/);
+                if (hmsMatch) {
+                    var hours = parseInt(hmsMatch[1], 10);
+                    var minutes = parseInt(hmsMatch[2], 10);
+                    var seconds = parseInt(hmsMatch[3], 10);
+                    var millis = parseInt(hmsMatch[4], 10);
+                    return (((hours * 60) + minutes) * 60 + seconds) * 1000 + millis;
+                }
+
+                var msMatch = trimmed.match(/^(\d+)(?:ms)?$/);
+                if (msMatch) {
+                    return parseInt(msMatch[1], 10);
+                }
+
+                return null;
+            };
+
+            var pad = function(value, width) {
+                return String(value).padStart(width, '0');
+            };
+
+            var formatElapsedMs = function(ms) {
+                if (!Number.isFinite(ms) || ms < 0) {
+                    return "-";
+                }
+
+                var totalMs = Math.round(ms);
+                var millis = totalMs % 1000;
+                var totalSeconds = Math.floor(totalMs / 1000);
+                var seconds = totalSeconds % 60;
+                var totalMinutes = Math.floor(totalSeconds / 60);
+                var minutes = totalMinutes % 60;
+                var hours = Math.floor(totalMinutes / 60);
+
+                return hours + ":" +
+                    pad(minutes, 2) + ":" +
+                    pad(seconds, 2) + "." +
+                    pad(millis, 3);
+            };
+
+            var formatClockMs = function(msSinceEpoch) {
+                var date = new Date(msSinceEpoch);
+                if (!Number.isFinite(date.getTime())) {
+                    return "-";
+                }
+
+                return date.getFullYear() + "-" +
+                    pad(date.getMonth() + 1, 2) + "-" +
+                    pad(date.getDate(), 2) + " " +
+                    pad(date.getHours(), 2) + ":" +
+                    pad(date.getMinutes(), 2) + ":" +
+                    pad(date.getSeconds(), 2);
+            };
+
+            var clockTextForLogTime = function(logTimeText) {
+                if (bootUnixMs === null) {
+                    return "-";
+                }
+
+                var logTimeMs = parseLogTimeMs(logTimeText);
+                if (logTimeMs === null || logTimeMs < 0) {
+                    return "-";
+                }
+
+                var absoluteMs = bootUnixMs + logTimeMs;
+                if (!Number.isFinite(absoluteMs) || absoluteMs < 0) {
+                    return "-";
+                }
+
+                return formatClockMs(absoluteMs);
+            };
+
+            var refreshBootClock = function() {
+                return $.ajax({
+                    url: 'status?_=' + Date.now(),
+                    cache: false,
+                    timeout: 2000
+                }).done(function(status) {
+                    bootUnixMs = null;
+
+                    if (!status || !status.time || status.time.valid !== true) {
+                        return;
+                    }
+
+                    if (typeof status.uptime_ms !== 'number') {
+                        return;
+                    }
+
+                    var unixMs = null;
+                    if (typeof status.time.unix_ms === 'number') {
+                        unixMs = Math.round(status.time.unix_ms);
+                    } else if (typeof status.time.unix === 'number') {
+                        unixMs = Math.round(status.time.unix * 1000);
+                    }
+                    var uptimeMs = Math.round(status.uptime_ms);
+
+                    if (!Number.isFinite(unixMs) || !Number.isFinite(uptimeMs) || uptimeMs < 0 || unixMs < uptimeMs) {
+                        return;
+                    }
+
+                    bootUnixMs = unixMs - uptimeMs;
+                }).fail(function() {
+                    bootUnixMs = null;
+                });
+            };
 
             var update = function() {
                 // Don't reload if another page is open
@@ -32,11 +145,12 @@
                     return;
                 }
 
-                $.ajax({
+                $.when(refreshBootClock(), $.ajax({
                     url: 'log?_=' + Date.now(),
                     cache: false,
                     timeout: 2000
-                }).done(function(data) {
+                })).done(function(_statusResult, logResult) {
+                    var data = Array.isArray(logResult) ? logResult[0] : logResult;
                     var lines = data.split("\n");
                     var index = 1;
                     tbody.empty();
@@ -75,9 +189,12 @@
                                 break;
                         }
 
+                        var elapsedMs = parseLogTimeMs(match.groups.time);
+
                         var row = $("<tr></tr>")
                             .append($("<td>" + index++ + "</td>"))
-                            .append($("<td>" + match.groups.time + "</td>"))
+                            .append($("<td>" + formatElapsedMs(elapsedMs) + "</td>"))
+                            .append($("<td>" + clockTextForLogTime(match.groups.time) + "</td>"))
                             .append($("<td></td>").append(levelBadge))
                             .append($("<td>" + match.groups.tag + "</td>"))
                             .append($("<td>" + match.groups.comment + "</td>"));
@@ -108,7 +225,8 @@
                 <thead>
                     <tr>
                         <th scope="col">#</th>
-                        <th scope="col">Time</th>
+                        <th scope="col">Since boot</th>
+                        <th scope="col">Wall time</th>
                         <th scope="col">Level</th>
                         <th scope="col">Tag</th>
                         <th scope="col">Comment</th>
