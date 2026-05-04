@@ -918,7 +918,7 @@ static esp_err_t gnss_log_get_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    size_t length = gnss_uart_console_snapshot(log_buffer, GNSS_CONSOLE_SNAPSHOT_BUFFER_SIZE);
+    size_t length = gnss_uart_console_consume(log_buffer, GNSS_CONSOLE_SNAPSHOT_BUFFER_SIZE);
     esp_err_t err = httpd_resp_send(req, log_buffer, length);
     free(log_buffer);
     return err;

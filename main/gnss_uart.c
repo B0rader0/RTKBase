@@ -36,12 +36,14 @@ static const char *TAG = "GNSS_UART";
 
 static uart_port_t s_uart_port = UART_NUM_MAX;
 static SemaphoreHandle_t s_uart_tx_mutex;
-static char s_console_buffer[GNSS_CONSOLE_BUFFER_SIZE];
+static char s_console_buffers[2][GNSS_CONSOLE_BUFFER_SIZE];
+static uint8_t s_console_active_buffer;
 static size_t s_console_head;
 static size_t s_console_used;
 static char s_console_line[GNSS_CONSOLE_LINE_SIZE];
 static size_t s_console_line_len;
 static bool s_console_line_binary;
+static uint64_t s_console_suppress_until_us;
 static portMUX_TYPE s_console_mux = portMUX_INITIALIZER_UNLOCKED;
 
 /// ─── CRC-24Q (RTCM3) ─────────────────────────────────────────────────────────
@@ -151,13 +153,15 @@ static bool console_is_likely_line_start(uint8_t b)
 
 static void console_append_locked(const char *data, size_t len)
 {
+    char *buffer = s_console_buffers[s_console_active_buffer];
+
     if (len >= GNSS_CONSOLE_BUFFER_SIZE) {
         data += len - GNSS_CONSOLE_BUFFER_SIZE + 1;
         len = GNSS_CONSOLE_BUFFER_SIZE - 1;
     }
 
     for (size_t i = 0; i < len; i++) {
-        s_console_buffer[s_console_head] = data[i];
+        buffer[s_console_head] = data[i];
         s_console_head = (s_console_head + 1) % GNSS_CONSOLE_BUFFER_SIZE;
         if (s_console_used < GNSS_CONSOLE_BUFFER_SIZE) {
             s_console_used++;
@@ -184,6 +188,14 @@ static void console_store_line_locked(void)
 static void console_push_bytes(const uint8_t *data, size_t len)
 {
     portENTER_CRITICAL(&s_console_mux);
+    if (s_console_suppress_until_us != 0 &&
+        (uint64_t)esp_timer_get_time() < s_console_suppress_until_us) {
+        s_console_line_len = 0;
+        s_console_line_binary = false;
+        portEXIT_CRITICAL(&s_console_mux);
+        return;
+    }
+
     for (size_t i = 0; i < len; i++) {
         uint8_t b = data[i];
 
@@ -613,6 +625,7 @@ size_t gnss_uart_console_snapshot(char *dest, size_t dest_size)
     }
 
     portENTER_CRITICAL(&s_console_mux);
+    char *buffer = s_console_buffers[s_console_active_buffer];
     size_t used = s_console_used;
     size_t start = (s_console_head + GNSS_CONSOLE_BUFFER_SIZE - used) % GNSS_CONSOLE_BUFFER_SIZE;
     size_t to_copy = used < dest_size - 1 ? used : dest_size - 1;
@@ -620,9 +633,41 @@ size_t gnss_uart_console_snapshot(char *dest, size_t dest_size)
     start = (start + skip) % GNSS_CONSOLE_BUFFER_SIZE;
 
     for (size_t i = 0; i < to_copy; i++) {
-        dest[i] = s_console_buffer[(start + i) % GNSS_CONSOLE_BUFFER_SIZE];
+        dest[i] = buffer[(start + i) % GNSS_CONSOLE_BUFFER_SIZE];
     }
     portEXIT_CRITICAL(&s_console_mux);
+
+    dest[to_copy] = '\0';
+    return to_copy;
+}
+
+size_t gnss_uart_console_consume(char *dest, size_t dest_size)
+{
+    if (dest == NULL || dest_size == 0) {
+        return 0;
+    }
+
+    char *buffer;
+    size_t start;
+    size_t to_copy;
+
+    portENTER_CRITICAL(&s_console_mux);
+    size_t used = s_console_used;
+    start = (s_console_head + GNSS_CONSOLE_BUFFER_SIZE - used) % GNSS_CONSOLE_BUFFER_SIZE;
+    to_copy = used < dest_size - 1 ? used : dest_size - 1;
+    size_t skip = used - to_copy;
+    start = (start + skip) % GNSS_CONSOLE_BUFFER_SIZE;
+    buffer = s_console_buffers[s_console_active_buffer];
+
+    s_console_active_buffer ^= 1U;
+    s_console_head = 0;
+    s_console_used = 0;
+
+    portEXIT_CRITICAL(&s_console_mux);
+
+    for (size_t i = 0; i < to_copy; i++) {
+        dest[i] = buffer[(start + i) % GNSS_CONSOLE_BUFFER_SIZE];
+    }
 
     dest[to_copy] = '\0';
     return to_copy;
@@ -635,5 +680,8 @@ void gnss_uart_console_clear(void)
     s_console_used = 0;
     s_console_line_len = 0;
     s_console_line_binary = false;
+    // Drop a short burst of already-queued text bytes after clear so stale
+    // pre-clear console lines do not immediately repopulate the viewer.
+    s_console_suppress_until_us = (uint64_t)esp_timer_get_time() + 500000ULL;
     portEXIT_CRITICAL(&s_console_mux);
 }

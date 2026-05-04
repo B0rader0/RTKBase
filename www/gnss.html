@@ -21,8 +21,17 @@
             var rtcmText = $('#rtcm-text');
             var tcpText = $('#tcp-text');
             var logText = $('#gnss-log');
+            var logTitle = $('#gnss-log-title');
+            var liveButton = $('#live-log');
+            var pauseButton = $('#pause-log');
             var busy = false;
             var tcpConnected = false;
+            var logPollTimer = null;
+            var logRequest = null;
+            var logGeneration = 0;
+            var pendingLogText = '';
+            var logLive = false;
+            var logPaused = false;
             var commandHistory = JSON.parse(localStorage.getItem('gnssCommandHistory') || '[]');
             var historyIndex = commandHistory.length;
 
@@ -65,6 +74,56 @@
                     commandInput.val(commandHistory[index]);
                 }
                 updateControls();
+            };
+
+            var updateLineCount = function() {
+                var text = logText.val();
+                var count = 0;
+                if (text && text.length > 0) {
+                    var matches = text.match(/\n/g);
+                    count = matches ? matches.length : 0;
+                }
+                logTitle.text("Receiver text (" + count + " lines)");
+            };
+
+            var updatePauseButton = function() {
+                pauseButton
+                    .toggleClass('btn-outline-secondary', !logPaused)
+                    .toggleClass('btn-secondary', logPaused)
+                    .text(logPaused ? 'Resume' : 'Pause')
+                    .prop('disabled', !logLive);
+            };
+
+            var updateLiveButton = function() {
+                liveButton
+                    .toggleClass('btn-outline-primary', !logLive)
+                    .toggleClass('btn-primary', logLive)
+                    .text(logLive ? 'Stop live view' : 'Start live view');
+            };
+
+            var isFollowingLog = function() {
+                var el = logText[0];
+                if (!el) {
+                    return true;
+                }
+
+                var distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                return distanceFromBottom <= 8;
+            };
+
+            var applyPendingLogText = function() {
+                if (!pendingLogText) {
+                    return;
+                }
+
+                var follow = isFollowingLog();
+                var existing = logText.val();
+                logText.val(existing + pendingLogText);
+                if (follow) {
+                    logText.scrollTop(logText[0].scrollHeight);
+                }
+                pendingLogText = '';
+                updateLineCount();
             };
 
             var updateStatus = function() {
@@ -116,16 +175,85 @@
             };
 
             var updateLog = function() {
-                $.ajax({
+                if (!logLive || logPaused) {
+                    return;
+                }
+
+                var generation = logGeneration;
+                logRequest = $.ajax({
                     url: 'gnss/log?_=' + Date.now(),
                     cache: false,
                     timeout: 2000
                 }).done(function(data) {
-                    logText.val(data);
-                    logText.scrollTop(logText[0].scrollHeight);
+                    if (generation !== logGeneration) {
+                        return;
+                    }
+                    if (data && data.length > 0) {
+                        if (logPaused) {
+                            pendingLogText += data;
+                        } else {
+                            var follow = isFollowingLog();
+                            var existing = logText.val();
+                            logText.val(existing + data);
+                            if (follow) {
+                                logText.scrollTop(logText[0].scrollHeight);
+                            }
+                            updateLineCount();
+                        }
+                    }
                 }).always(function() {
-                    setTimeout(updateLog, 1500);
+                    if (logRequest && logRequest.readyState === 4) {
+                        logRequest = null;
+                    }
+                    if (generation !== logGeneration || !logLive || logPaused) {
+                        return;
+                    }
+                    logPollTimer = setTimeout(updateLog, 500);
                 });
+            };
+
+            var stopLogPolling = function() {
+                logGeneration++;
+                if (logPollTimer !== null) {
+                    clearTimeout(logPollTimer);
+                    logPollTimer = null;
+                }
+                if (logRequest) {
+                    logRequest.abort();
+                    logRequest = null;
+                }
+            };
+
+            var clearLogView = function() {
+                logText.val('');
+                logText.scrollTop(0);
+                pendingLogText = '';
+                updateLineCount();
+            };
+
+            var resetLogSession = function() {
+                stopLogPolling();
+                clearLogView();
+                return $.post('gnss/log/clear').always(updateLog);
+            };
+
+            var stopLiveSession = function(clearServer) {
+                stopLogPolling();
+                logLive = false;
+                logPaused = false;
+                updateLiveButton();
+                updatePauseButton();
+                if (clearServer === true) {
+                    $.post('gnss/log/clear');
+                }
+            };
+
+            var startLiveSession = function() {
+                logLive = true;
+                logPaused = false;
+                updateLiveButton();
+                updatePauseButton();
+                resetLogSession();
             };
 
             commandInput.on('input', updateControls);
@@ -180,13 +308,51 @@
                 });
             });
 
+            pauseButton.on('click', function() {
+                if (!logLive) {
+                    return;
+                }
+                logPaused = !logPaused;
+                updatePauseButton();
+                if (logPaused) {
+                    stopLogPolling();
+                } else {
+                    applyPendingLogText();
+                    updateLog();
+                }
+            });
+
+            liveButton.on('click', function() {
+                if (logLive) {
+                    stopLiveSession(true);
+                } else {
+                    startLiveSession();
+                }
+            });
+
             clearButton.on('click', function() {
-                $.post('gnss/log/clear').always(updateLog);
+                clearLogView();
+                if (logLive) {
+                    resetLogSession();
+                } else {
+                    $.post('gnss/log/clear');
+                }
+            });
+
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    stopLiveSession(true);
+                }
+            });
+            window.addEventListener('pagehide', function() {
+                stopLiveSession(true);
             });
 
             updateControls();
+            updateLiveButton();
+            updatePauseButton();
             updateStatus();
-            updateLog();
+            clearLogView();
         });
     </script>
 </head>
@@ -204,10 +370,14 @@
                 <div><small id="status-text" class="text-muted"></small></div>
             </div>
         </div>
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Receiver text</span>
-                <button id="clear-log" type="button" class="btn btn-sm btn-outline-secondary">Clear</button>
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                <span id="gnss-log-title">Receiver text (0 lines)</span>
+                <div>
+                    <button id="live-log" type="button" class="btn btn-sm btn-outline-primary mr-2">Start live view</button>
+                    <button id="pause-log" type="button" class="btn btn-sm btn-outline-secondary mr-2">Pause</button>
+                    <button id="clear-log" type="button" class="btn btn-sm btn-outline-secondary">Clear</button>
+                </div>
             </div>
             <div class="card-body">
                 <textarea id="gnss-log" class="form-control" readonly></textarea>
