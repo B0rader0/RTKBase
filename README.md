@@ -1,8 +1,9 @@
 # RTK Base
-RTK Base is inspired by the ESP32 XBee official firmware for the Ardusimple [WiFi NTRIP Master](https://www.ardusimple.com/product/wifi-ntrip-master/) ESP32 XBee device (https://github.com/espressif/esp-idf). 
+RTK Base is inspired by the ESP32 XBee official firmware for the Ardusimple [WiFi NTRIP Master](https://www.ardusimple.com/product/wifi-ntrip-master/).
 
 RTK Base is implemented on an ESP32 and uses UM980 GNSS module connected to the UART of the ESP32.
 The base station is intended to transfer NMEA and/or RTCM messages from UM980 over WiFi to different clients.
+The firmware is written using ESP-IDF 5.x.
 
 ## Features
 - WiFi Station - AP mode.
